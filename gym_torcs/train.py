@@ -1,3 +1,5 @@
+import argparse
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
@@ -27,7 +29,7 @@ EXPL_NOISE     = 0.005    # tiny noise for fine-tuning
 SAVE_EVERY     = 1        # save every episode to track best
 RELAUNCH_EVERY = 20       # restart TORCS every N episodes (memory leak workaround)
 MODEL_DIR      = 'models'
-DEVICE         = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+DEVICE         = torch.device('cpu')
 
 
 class OUNoise:
@@ -184,10 +186,23 @@ class TD3:
 
 # ── Training Loop ──────────────────────────────────────────────────
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cuda', action='store_true', help='train on GPU (CUDA)')
+    args, remaining = parser.parse_known_args()
+    sys.argv = [sys.argv[0]] + remaining  # hide our flags from the TORCS getopt parser
+
+    if args.cuda:
+        if torch.cuda.is_available():
+            DEVICE = torch.device('cuda')
+        else:
+            print('  [warning] --cuda specified but CUDA is not available, falling back to CPU')
+
     print(f"  [device] training on {DEVICE}")
     env    = TorcsEnv(throttle=True, gear_change=False)
     agent  = TD3(STATE_DIM, ACTION_DIM)
     buffer = ReplayBuffer(BUFFER_SIZE)
+
+    best_reward = -np.inf
 
     # Resume from highest-reward best checkpoint if any exist, otherwise latest
     best_dir = f'{MODEL_DIR}/best'
@@ -214,7 +229,6 @@ if __name__ == '__main__':
 
     total_steps    = 0
     episode_rewards = []
-    best_reward    = -np.inf
 
     for episode in range(MAX_EPISODES):
         relaunch = (episode % RELAUNCH_EVERY == 0)
