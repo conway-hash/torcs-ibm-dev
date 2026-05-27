@@ -17,16 +17,17 @@ BATCH_SIZE     = 64
 BUFFER_SIZE    = 100_000
 GAMMA          = 0.99
 TAU            = 0.005    # soft update rate
-ACTOR_LR       = 1e-3
-CRITIC_LR      = 1e-3
+ACTOR_LR       = 5e-5
+CRITIC_LR      = 5e-5
 POLICY_NOISE   = 0.2      # noise added to target actions
 NOISE_CLIP     = 0.5      # clip target action noise
 POLICY_DELAY   = 2        # update actor every N critic updates
-WARMUP_STEPS   = 1000     # random warmup to fill buffer
-EXPL_NOISE     = 0.02     # exploration noise
+WARMUP_STEPS   = 0        # no random warmup when loading a good checkpoint
+EXPL_NOISE     = 0.005    # tiny noise for fine-tuning
 SAVE_EVERY     = 1        # save every episode to track best
 RELAUNCH_EVERY = 20       # restart TORCS every N episodes (memory leak workaround)
 MODEL_DIR      = 'models'
+DEVICE         = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class OUNoise:
@@ -69,11 +70,11 @@ class ReplayBuffer:
         batch = random.sample(self.buffer, batch_size)
         s, a, r, s2, d = zip(*batch)
         return (
-            torch.FloatTensor(np.array(s)),
-            torch.FloatTensor(np.array(a)),
-            torch.FloatTensor(np.array(r)).unsqueeze(1),
-            torch.FloatTensor(np.array(s2)),
-            torch.FloatTensor(np.array(d)).unsqueeze(1),
+            torch.FloatTensor(np.array(s)).to(DEVICE),
+            torch.FloatTensor(np.array(a)).to(DEVICE),
+            torch.FloatTensor(np.array(r)).unsqueeze(1).to(DEVICE),
+            torch.FloatTensor(np.array(s2)).to(DEVICE),
+            torch.FloatTensor(np.array(d)).unsqueeze(1).to(DEVICE),
         )
 
     def __len__(self):
@@ -120,20 +121,20 @@ class Critic(nn.Module):
 # ── TD3 Agent ──────────────────────────────────────────────────────
 class TD3:
     def __init__(self, state_dim, action_dim):
-        self.actor        = Actor(state_dim, action_dim)
-        self.actor_target = Actor(state_dim, action_dim)
+        self.actor        = Actor(state_dim, action_dim).to(DEVICE)
+        self.actor_target = Actor(state_dim, action_dim).to(DEVICE)
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.actor_opt    = torch.optim.Adam(self.actor.parameters(), lr=ACTOR_LR)
 
-        self.critic        = Critic(state_dim, action_dim)
-        self.critic_target = Critic(state_dim, action_dim)
+        self.critic        = Critic(state_dim, action_dim).to(DEVICE)
+        self.critic_target = Critic(state_dim, action_dim).to(DEVICE)
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_opt    = torch.optim.Adam(self.critic.parameters(), lr=CRITIC_LR)
 
         self.total_it = 0
 
     def select_action(self, state):
-        s = torch.FloatTensor(state).unsqueeze(0)
+        s = torch.FloatTensor(state).unsqueeze(0).to(DEVICE)
         return self.actor(s).detach().cpu().numpy()[0]
 
     def train(self, replay_buffer):
@@ -174,8 +175,8 @@ class TD3:
         print(f"  [saved] {path}/")
 
     def load(self, path=MODEL_DIR):
-        self.actor.load_state_dict(torch.load(f'{path}/actor.pth'))
-        self.critic.load_state_dict(torch.load(f'{path}/critic.pth'))
+        self.actor.load_state_dict(torch.load(f'{path}/actor.pth', map_location=DEVICE))
+        self.critic.load_state_dict(torch.load(f'{path}/critic.pth', map_location=DEVICE))
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
         print(f"  [loaded] {path}/")
@@ -183,6 +184,7 @@ class TD3:
 
 # ── Training Loop ──────────────────────────────────────────────────
 if __name__ == '__main__':
+    print(f"  [device] training on {DEVICE}")
     env    = TorcsEnv(throttle=True, gear_change=False)
     agent  = TD3(STATE_DIM, ACTION_DIM)
     buffer = ReplayBuffer(BUFFER_SIZE)
@@ -197,16 +199,18 @@ if __name__ == '__main__':
             except ValueError:
                 pass
         if scored:
-            top = max(scored)[1]
+            top_score, top = max(scored)
             agent.load(f'{best_dir}/{top}')
+            best_reward = top_score
+            print(f"  [resume] loaded best checkpoint {top} — best_reward set to {top_score:.1f}")
         elif os.path.exists(f'{MODEL_DIR}/actor.pth'):
             agent.load()
     elif os.path.exists(f'{MODEL_DIR}/actor.pth'):
         agent.load()
 
-    ou_steer = OUNoise(1, mu=0.0,  theta=0.6, sigma=0.1)
-    ou_accel = OUNoise(1, mu=0.5,  theta=1.0, sigma=0.05)
-    ou_brake = OUNoise(1, mu=-0.9, theta=1.0, sigma=0.02)
+    ou_steer = OUNoise(1, mu=0.0,  theta=0.6, sigma=0.01)
+    ou_accel = OUNoise(1, mu=0.5,  theta=1.0, sigma=0.005)
+    ou_brake = OUNoise(1, mu=-0.9, theta=1.0, sigma=0.002)
 
     total_steps    = 0
     episode_rewards = []

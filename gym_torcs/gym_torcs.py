@@ -130,8 +130,9 @@ class TorcsEnv:
 
         track = np.array(obs['track'])
         sp = np.array(obs['speedX'])
+        sp_y = np.array(obs['speedY'])
         progress = sp * np.cos(obs['angle'])
-        reward = progress
+        reward = progress + 0.1 * sp - 0.5 * abs(sp_y)
         term_reason = None
 
         if obs['damage'] - obs_pre['damage'] > 0:
