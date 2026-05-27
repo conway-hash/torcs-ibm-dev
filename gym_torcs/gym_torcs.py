@@ -32,8 +32,8 @@ def _kill_torcs():
 
 
 class TorcsEnv:
-    terminal_judge_start = 500
-    termination_limit_progress = 5  # [km/h]
+    terminal_judge_start = 100
+    termination_limit_progress = 10  # [km/h]
     default_speed = 50
 
     initial_reset = True
@@ -119,7 +119,7 @@ class TorcsEnv:
         obs = client.S.d
         self.observation = self.make_observaton(obs)
 
-        # Lap complete — TORCS lastLapTime updates from 0 when lap is done
+        # Lap complete via lastLapTime sensor
         if obs.get('lastLapTime', 0) > 0:
             lap_time = obs['lastLapTime']
             print(f"### LAP FINISHED in {lap_time:.1f}s ###")
@@ -135,26 +135,26 @@ class TorcsEnv:
         term_reason = None
 
         if obs['damage'] - obs_pre['damage'] > 0:
-            reward -= 5000
+            reward -= 1000
             client.R.d['meta'] = True
             term_reason = 'damage'
 
         episode_terminate = False
         if track.min() < 0:
-            reward -= 5000
+            reward -= 1000
             episode_terminate = True
             client.R.d['meta'] = True
             term_reason = 'off_track'
 
         if self.terminal_judge_start < self.time_step:
             if progress < self.termination_limit_progress:
-                reward -= 5000
+                reward -= 1000
                 episode_terminate = True
                 client.R.d['meta'] = True
                 term_reason = 'too_slow'
 
         if np.cos(obs['angle']) < 0:
-            reward -= 5000
+            reward -= 1000
             episode_terminate = True
             client.R.d['meta'] = True
             term_reason = 'backwards'

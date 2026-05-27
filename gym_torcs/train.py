@@ -17,13 +17,13 @@ BATCH_SIZE     = 64
 BUFFER_SIZE    = 100_000
 GAMMA          = 0.99
 TAU            = 0.005    # soft update rate
-ACTOR_LR       = 1e-5
-CRITIC_LR      = 1e-5
+ACTOR_LR       = 1e-3
+CRITIC_LR      = 1e-3
 POLICY_NOISE   = 0.2      # noise added to target actions
 NOISE_CLIP     = 0.5      # clip target action noise
 POLICY_DELAY   = 2        # update actor every N critic updates
-WARMUP_STEPS   = 0        # no random warmup — model already trained
-EXPL_NOISE     = 0.0      # no exploration noise — pure exploitation
+WARMUP_STEPS   = 1000     # random warmup to fill buffer
+EXPL_NOISE     = 0.02     # exploration noise
 SAVE_EVERY     = 1        # save every episode to track best
 RELAUNCH_EVERY = 20       # restart TORCS every N episodes (memory leak workaround)
 MODEL_DIR      = 'models'
@@ -187,16 +187,30 @@ if __name__ == '__main__':
     agent  = TD3(STATE_DIM, ACTION_DIM)
     buffer = ReplayBuffer(BUFFER_SIZE)
 
-    # Resume from saved model if it exists
-    if os.path.exists(f'{MODEL_DIR}/actor.pth'):
+    # Resume from highest-reward best checkpoint if any exist, otherwise latest
+    best_dir = f'{MODEL_DIR}/best'
+    if os.path.exists(best_dir):
+        scored = []
+        for d in os.listdir(best_dir):
+            try:
+                scored.append((float(d), d))
+            except ValueError:
+                pass
+        if scored:
+            top = max(scored)[1]
+            agent.load(f'{best_dir}/{top}')
+        elif os.path.exists(f'{MODEL_DIR}/actor.pth'):
+            agent.load()
+    elif os.path.exists(f'{MODEL_DIR}/actor.pth'):
         agent.load()
 
     ou_steer = OUNoise(1, mu=0.0,  theta=0.6, sigma=0.1)
     ou_accel = OUNoise(1, mu=0.5,  theta=1.0, sigma=0.05)
-    ou_brake = OUNoise(1, mu=-0.9, theta=1.0, sigma=0.02)  # biased toward no brake
+    ou_brake = OUNoise(1, mu=-0.9, theta=1.0, sigma=0.02)
 
     total_steps    = 0
     episode_rewards = []
+    best_reward    = -np.inf
 
     for episode in range(MAX_EPISODES):
         relaunch = (episode % RELAUNCH_EVERY == 0)
@@ -245,9 +259,11 @@ if __name__ == '__main__':
             f"End: {term_reason}"
         )
 
-        if (episode + 1) % SAVE_EVERY == 0:
-            agent.save()
-            agent.save(f'{MODEL_DIR}/checkpoint_{episode+1}')
+        if episode_reward > best_reward:
+            best_reward = episode_reward
+            best_name = f'{MODEL_DIR}/best/{episode_reward:.1f}'
+            agent.save(best_name)
+            print(f"  [best] ep {episode} reward {episode_reward:.1f}")
 
     env.end()
     agent.save()
