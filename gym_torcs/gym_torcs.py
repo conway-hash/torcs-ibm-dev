@@ -33,7 +33,7 @@ def _kill_torcs():
 
 class TorcsEnv:
     terminal_judge_start = 100
-    termination_limit_progress = 10  # [km/h]
+    termination_limit_progress = 5   # [km/h]
     default_speed = 50
 
     initial_reset = True
@@ -105,6 +105,9 @@ class TorcsEnv:
             if client.S.d['speedX'] > 150:
                 action_torcs['gear'] = 6
 
+        prev_steer = float(self.last_u[0]) if self.last_u is not None else float(u[0])
+        self.last_u = u
+
         obs_pre = copy.deepcopy(client.S.d)
 
         client.respond_to_server()
@@ -113,8 +116,9 @@ class TorcsEnv:
         # TORCS sent ***shutdown*** — server ended race
         if client.so is None:
             self.observation = self.make_observaton(obs_pre)
-            finish_bonus = 50000.0 + (1000000.0 / self.time_step)
-            return self.get_obs(), finish_bonus, True, False, {'term_reason': 'finished'}
+            finish_bonus = 50000.0 + (5000000.0 / self.time_step)
+            race_time = obs_pre.get('curLapTime', 0.0)
+            return self.get_obs(), finish_bonus, True, False, {'term_reason': 'finished', 'time': race_time}
 
         obs = client.S.d
         self.observation = self.make_observaton(obs)
@@ -123,16 +127,21 @@ class TorcsEnv:
         if obs.get('lastLapTime', 0) > 0:
             lap_time = obs['lastLapTime']
             print(f"### LAP FINISHED in {lap_time:.1f}s ###")
-            finish_bonus = 50000.0 + (1000000.0 / self.time_step)
+            finish_bonus = 50000.0 + (5000000.0 / self.time_step)
             client.R.d['meta'] = True
             client.respond_to_server()
-            return self.get_obs(), finish_bonus, True, False, {'term_reason': 'finished'}
+            return self.get_obs(), finish_bonus, True, False, {'term_reason': 'finished', 'time': lap_time}
 
         track = np.array(obs['track'])
         sp = np.array(obs['speedX'])
         sp_y = np.array(obs['speedY'])
         progress = sp * np.cos(obs['angle'])
-        reward = progress + 0.1 * sp - 0.5 * abs(sp_y)
+
+        # Gentle smoothness nudge — discourages oscillation without blocking cornering
+        steer_delta = abs(float(u[0]) - prev_steer)
+        smoothness_penalty = 0.5 * steer_delta
+
+        reward = progress + 0.1 * sp - 0.5 * abs(sp_y) - 2.0 - smoothness_penalty
         term_reason = None
 
         if obs['damage'] - obs_pre['damage'] > 0:
@@ -166,7 +175,7 @@ class TorcsEnv:
 
         self.time_step += 1
 
-        return self.get_obs(), reward, client.R.d['meta'], False, {'term_reason': term_reason}
+        return self.get_obs(), reward, client.R.d['meta'], False, {'term_reason': term_reason, 'time': obs.get('curLapTime', 0.0)}
 
     def reset(self, relaunch=False, seed=None, options=None):
         self.time_step = 0

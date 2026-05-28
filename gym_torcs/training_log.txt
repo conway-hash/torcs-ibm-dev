@@ -1,0 +1,7 @@
+Ep    0 | Time 0:02.53 | Steps   172 | Reward   2367.7 | Avg(10)   2367.7 | Buf   0.0% | Total     172 | End: too_slow
+Ep    1 | Time 0:28.66 | Steps  1396 | Reward 141130.3 | Avg(10)  71749.0 | Buf   0.3% | Total    1568 | End: off_track
+Ep    2 | Time 1:06.52 | Steps  3262 | Reward 351879.6 | Avg(10) 165125.8 | Buf   1.0% | Total    4830 | End: off_track
+Ep    3 | Time 1:20.64 | Steps  3904 | Reward 455867.6 | Avg(10) 237811.3 | Buf   1.7% | Total    8734 | End: off_track
+Ep    4 | Time 1:26.87 | Steps  4187 | Reward 471804.3 | Avg(10) 284609.9 | Buf   2.6% | Total   12921 | End: off_track
+Ep    5 | Time 1:26.05 | Steps  4150 | Reward 471107.1 | Avg(10) 315692.8 | Buf   3.4% | Total   17071 | End: off_track
+Ep    6 | Time 1:01.45 | Steps  3020 | Reward 365130.8 | Avg(10) 322755.3 | Buf   4.0% | Total   20091 | End: off_track
