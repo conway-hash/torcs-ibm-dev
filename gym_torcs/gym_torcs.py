@@ -141,7 +141,7 @@ class TorcsEnv:
         steer_delta = abs(float(u[0]) - prev_steer)
         smoothness_penalty = 0.5 * steer_delta
 
-        reward = progress + 0.1 * sp - 0.5 * abs(sp_y) - 2.0 - smoothness_penalty
+        reward = progress + 0.3 * sp - 0.5 * abs(sp_y) - 2.0 - smoothness_penalty
         term_reason = None
 
         if obs['damage'] - obs_pre['damage'] > 0:

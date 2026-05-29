@@ -18,19 +18,19 @@ BATCH_SIZE     = 256
 BUFFER_SIZE    = 500_000
 GAMMA          = 0.99
 TAU            = 0.001
-ACTOR_LR       = 1e-6
-CRITIC_LR      = 1e-6
+ACTOR_LR       = 3e-6
+CRITIC_LR      = 3e-6
 POLICY_NOISE   = 0.08
 NOISE_CLIP     = 0.15
 POLICY_DELAY   = 3
 WARMUP_STEPS   = 0
 SEED_STEPS     = 20_000
-EXPL_NOISE     = 0.03
+EXPL_NOISE     = 0.08
 RELAUNCH_EVERY = 20
 MODEL_DIR      = 'models'
 LOG_FILE       = 'training_log.txt'
 TRAIN_FREQ     = 4       # train once per N env steps (reduces update rate)
-ROLLBACK_SEED  = 20_000  # steps without training after rollback (rebuild buffer)
+ROLLBACK_SEED  = 2_000   # steps without training after rollback (rebuild buffer)
 
 # Prioritized Experience Replay
 PER_ALPHA          = 0.6    # prioritisation (0=uniform, 1=full)
@@ -38,8 +38,9 @@ PER_BETA_START     = 0.4    # IS correction start, anneals to 1.0
 PER_BETA_INCREMENT = 0.0001 # per training step
 
 # Auto-rollback: if Avg(10) drops this fraction below its peak, reload best-avg checkpoint
-ROLLBACK_DROP     = 0.35
-ROLLBACK_COOLDOWN = 25      # min episodes between rollbacks
+ROLLBACK_DROP     = 0.60
+ROLLBACK_COOLDOWN = 30      # min episodes between rollbacks
+ROLLBACK_PATIENCE = 40      # also rollback if no new peak for this many episodes
 
 DEVICE = torch.device('cpu')
 
@@ -278,6 +279,7 @@ class TD3:
             print(f"  [loaded] {path}/")
 
 
+
 # ── Training Loop ──────────────────────────────────────────────────
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -296,10 +298,12 @@ if __name__ == '__main__':
     agent  = TD3(STATE_DIM, ACTION_DIM)
     buffer = PrioritizedReplayBuffer(BUFFER_SIZE)
 
-    best_reward          = -np.inf
-    best_avg10           = -np.inf
-    rollback_cooldown    = 0
-    steps_since_rollback = ROLLBACK_SEED  # start ready to train
+    best_reward             = -np.inf
+    best_avg10              = -np.inf
+    rollback_cooldown       = 0
+    episodes_since_peak     = 0
+    steps_since_rollback    = ROLLBACK_SEED  # start ready to train
+    rollback_episode_window = []             # episode_rewards snapshot at peak avg
 
     # Load best checkpoint
     best_dir = f'{MODEL_DIR}/best'
@@ -389,22 +393,31 @@ if __name__ == '__main__':
             f.write(line + '\n')
 
         # Save rollback checkpoint whenever avg10 hits a new high
+        episodes_since_peak += 1
         if avg_reward > best_avg10:
             best_avg10 = avg_reward
+            episodes_since_peak = 0
+            rollback_episode_window = episode_rewards[-10:].copy()
             agent.save(f'{MODEL_DIR}/rollback', quiet=True)
+            rollback_cooldown = 0  # new peak → allow rollback immediately if it drops
 
         # Auto-rollback if avg10 collapsed
         rollback_cooldown = max(0, rollback_cooldown - 1)
+        pct_drop  = avg_reward < best_avg10 * (1 - ROLLBACK_DROP)
+        too_stale = (episodes_since_peak >= ROLLBACK_PATIENCE
+                     and avg_reward < best_avg10 * 0.95)  # must be at least 5% below peak
         if (rollback_cooldown == 0
                 and len(episode_rewards) >= 10
-                and avg_reward < best_avg10 * (1 - ROLLBACK_DROP)
+                and (pct_drop or too_stale)
                 and os.path.exists(f'{MODEL_DIR}/rollback/actor.pth')):
             agent.load(f'{MODEL_DIR}/rollback', quiet=True)
-            buffer = PrioritizedReplayBuffer(BUFFER_SIZE)  # clear poisoned buffer
+            buffer = PrioritizedReplayBuffer(BUFFER_SIZE)  # reset buffer on rollback
             steps_since_rollback = 0                       # pause training for ROLLBACK_SEED steps
-            episode_rewards = []                           # reset avg so it reflects new episodes only
+            episode_rewards = rollback_episode_window.copy() # restore exact window from peak
+            episodes_since_peak = 0
             rollback_cooldown = ROLLBACK_COOLDOWN
-            rb_line = f"  [rollback] avg {avg_reward:.0f} dropped from peak {best_avg10:.0f} — weights + buffer reset"
+            reason  = f"drop>{ROLLBACK_DROP*100:.0f}%" if pct_drop else f"no peak for {ROLLBACK_PATIENCE} eps"
+            rb_line = f"  [rollback] avg {avg_reward:.0f} vs peak {best_avg10:.0f} ({reason}) — weights + buffer reset"
             print(rb_line)
             with open(LOG_FILE, 'a') as f:
                 f.write(rb_line + '\n')
