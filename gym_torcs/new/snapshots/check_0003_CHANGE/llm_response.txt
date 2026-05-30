@@ -1,0 +1,4 @@
+<decision>change</decision>
+<analysis>Avg(10) has collapsed monotonically from a peak of ~72369 around ep_000053 down to ~13700 at ep_000108 — a clear and sustained degradation. The policy is forgetting how to drive: nearly every recent episode terminates off_track at only 10m (0.3%) distance, whereas earlier branches occasionally completed ~1300m (40%). The agent is stuck in a near-immediate off-track crash loop and the running average shows no sign of recovery.</analysis>
+<action>Reverting to ep_000053, which sits at the peak avg10 (~72369) and corresponds to the cluster of strong runs (ep_044/045/049/059 all reached ~40% track distance). Hot-swapping (episode only, no param change) to branch from the best-performing checkpoint and rebuild the buffer fresh from good experience rather than continuing to descend.</action>
+<load_from>models/episodes/ep_000053</load_from>

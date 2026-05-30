@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000091.3
+
+Analysis:
+Branch .3 started from a strong checkpoint (ep_085.2, which hit 200k reward) and even produced ep_091.3 at 290890 reward / 75% distance — the best run yet. But the policy then collapsed into a damage crash-loop: the last 7 episodes are all ~2500-5000 reward terminating on 'damage'. This is the classic catastrophic-forgetting pattern after a peak, where the critic chases high-speed Q-values and the actor over-commits to throttle, crashing into walls. The avg10 has crashed from 106k to 9.6k.
+
+Action:
+Loading the best demonstrated checkpoint ep_000091.3 (290890 reward, 75% track) to branch off from peak performance, rather than continuing the damage-loop collapse. Buffer clears on swap, giving a fresh start from the strongest policy. No param change yet — first verify the swap recovers performance before touching reward shaping.

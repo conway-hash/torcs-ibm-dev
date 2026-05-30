@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000132.4
+
+Analysis:
+The branch-4 policy peaked around ep_000132.4 with Avg(10) ~213k (consistent 64-68% track coverage, reaching 2080m), then degraded badly from ep_000133.4 onward — Avg(10) collapsed to ~50-83k with most episodes only covering ~3-14% before going off-track. This is a clear post-peak degradation; the recent episodes are catastrophic regressions while the strong checkpoint at ep_000132.4 is still saved.
+
+Action:
+Hot-swapping back to ep_000132.4, the strongest checkpoint (reward 242k, 68% track coverage). The buffer will clear and a new branch starts fresh from the best policy, avoiding the degraded weights of the last ~14 episodes. No param changes — the reward function and hyperparameters are clearly working (the policy reached 90% lap distance at ep_000145.4), so I keep them and just recover the best weights.

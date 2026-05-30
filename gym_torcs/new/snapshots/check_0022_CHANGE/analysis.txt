@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000142.9
+
+Analysis:
+The branch-9 lineage from ep_000132.4 peaked beautifully — Avg(10) reached 197,598 around ep_000147.9 with multiple full-distance runs (65% track, 2080m). But branch 10 (loaded from ep_000147.9) has regressed badly: buffer cleared and the agent collapsed to ~80-120k avg, mostly short 10-35% runs, never recovering the consistent 65% performance. The hot-swap to ep_000147.9 wiped a productive buffer and the policy hasn't rebuilt the same behavior.
+
+Action:
+Reverting to the strongest checkpoint in the branch-9 lineage, ep_000142.9 (reward 242,632, avg 157,705, 64.6% distance), which represents the peak consolidated policy before the late-branch-9 decline. This restarts the buffer but gives the best weights to continue from. No param changes — the learning dynamics are fundamentally healthy, this is just branch selection.

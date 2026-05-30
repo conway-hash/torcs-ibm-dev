@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000147.9
+
+Analysis:
+Branch 9 (ep_000147.9) reached the best Avg(10) of ~197.6k and produced consistent 65% laps. Branches 10, 11, and 12 all spawned from that region but degraded — none recovered the 190k+ average. The current branch 12 is oscillating between strong (~196k) and very weak (~10k) runs, never matching the ep_000147.9 peak. The best stable policy clearly existed at ep_000147.9 before the swaps diluted it.
+
+Action:
+Hot-swap back to the strongest checkpoint ep_000147.9 (Avg10 ~197.6k, 65% dist consistently). This is a pure episode switch with no param change, so the buffer clears and a fresh branch continues from the best known policy rather than the degraded branch-12 state.

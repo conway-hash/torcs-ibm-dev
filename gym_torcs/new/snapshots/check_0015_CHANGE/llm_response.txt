@@ -1,0 +1,4 @@
+<decision>change</decision>
+<analysis>Branch .4 reached a strong peak around ep_000132.4 (avg10 ~213k, dist 68%) before degrading into a low-reward plateau. The current branch .5 (loaded from ep_000132.4) climbed back to avg10 ~174k around ep_000143.5 but has since regressed to ~145k with several episodes barely leaving the spawn (35m, 1% dist) and oscillating. The best consolidated performance was at ep_000132.4 itself, and branch .5 has now decayed below where it started early on.</analysis>
+<action>Hot-swap back to the strongest checkpoint ep_000132.4 (avg10 213578, dist 68.2%) to restart a fresh exploration branch from the best policy, since branch .5's avg10 is now declining and no longer improving. No param changes — keeping the swap clean to preserve the restart-free hot-swap path.</action>
+<load_from>models/episodes/ep_000132.4</load_from>

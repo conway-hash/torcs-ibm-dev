@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>The current branch (.17, loaded from ep_000274.17) recovered well after the post-restart dip: Avg(10) climbed from ~6,800 at the crash-loop low (ep_000275-296) to 209,388 at ep_000321, with three near-full and full laps (90%+ dist) appearing in the last 5 episodes. The early warmup-buffer crash loop was expected after the restart cleared the buffer, and the policy is now clearly improving with rising distances and rewards.</analysis>
+<action>No change. Avg(10) is trending strongly upward (165k→209k over the last 10 episodes) and the agent is producing finished/near-finished laps again. Switching episodes or touching the reward now would discard a healthy, improving branch and re-clear the buffer for no benefit.</action>

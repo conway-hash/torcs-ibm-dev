@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000083.1
+
+Analysis:
+The branch-1 run peaked spectacularly around ep_000079.1–ep_000084.1 (Avg(10) >120k, distances 1500–1830m, ~50-57% of track), but has since collapsed to ~30k with recurring early 'damage' terminations (ep_85/89/91/93). The policy degraded after its peak — likely overfitting/instability after the high-reward window. The best stable model is ep_000083.1 (149k reward, 54.6% distance), right before the collapse began.
+
+Action:
+Hot-swap to ep_000083.1, the strongest stable checkpoint just before the damage-loop collapse. This is an episode-only swap (no param change), so the buffer clears and training continues on a fresh branch from a proven-good policy. No reward change needed — the reward function is producing genuinely good long runs, the recent regression is a training-instability artifact best fixed by resuming from the peak.

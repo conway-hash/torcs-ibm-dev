@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 4 is performing exceptionally well: Avg(10) has climbed steadily from ~31k to 213k over the last 40 episodes, with consistent 64-68% track completion and rewards above 200k. The policy is clearly learning to drive substantial portions of the track and improving monotonically. Termination is now overwhelmingly off_track (running out of track at speed) rather than the early-damage crash loops seen in earlier branches.
+
+Action:
+No change. The current branch.4 trajectory is the healthiest run yet — Avg(10) is rising consistently and distance/completion is trending up toward full laps. Interrupting now would clear the buffer and lose momentum. Let it continue.

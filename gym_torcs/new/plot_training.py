@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
-LOG_FILE = 'training_log.txt'
+LOG_FILE        = 'training_log.txt'
 REFRESH_SECONDS = 10
 
 COLOR_MAP = {
@@ -15,14 +15,21 @@ COLOR_MAP = {
     'unknown':   '#aaaaaa',
 }
 
+GRAY = 0.68   # neutral gray level for faded old dots
+
+
+
+def _smooth(vals, window):
+    if len(vals) < 2:
+        return np.array(vals)
+    w = max(1, min(window, len(vals) // 4))
+    kernel = np.ones(w) / w
+    return np.convolve(vals, kernel, mode='same')
+
 
 def parse_log():
-    episodes = []
-    rollback_segs = []   # list of (ep_before, low_avg, peak_avg)
-    pending_rollback = None
-
-    cumulative_offset = 0
-    prev_ep_num = -1
+    episodes    = []
+    restart_eps = []   # episode indices (into `episodes`) where a branch/session change happened
 
     try:
         with open(LOG_FILE, 'r', encoding='utf-8', errors='replace') as f:
@@ -30,23 +37,24 @@ def parse_log():
     except FileNotFoundError:
         return [], []
 
+    ep_re = re.compile(
+        r'Ep\s+ep_(\d+)(?:\.\d+)?\s*\|'
+        r'.*?Time\s+(\d+):(\d+\.\d+)\s*\|'
+        r'.*?Reward\s+([-\d.]+)\s*\|'
+        r'.*?Avg\(10\)\s+([-\d.]+)\s*\|'
+        r'(?:.*?Dist\s+([\d.]+)m\s*\(\s*([\d.]+)%\)\s*\|)?'
+        r'.*?End:\s+(\w+)'
+    )
+    restart_re = re.compile(r'=== Session|ai-swap|ai-rollback')
+
     for line in lines:
         line = line.strip()
 
-        rb = re.search(r'\[rollback\].*?avg\s+([\d.]+).*?peak\s+([\d.]+)', line)
-        if rb:
-            pending_rollback = (float(rb.group(1)), float(rb.group(2)))
+        if restart_re.search(line) and episodes:
+            restart_eps.append(len(episodes))
             continue
 
-        m = re.match(
-            r'Ep\s+ep_(\d+)(?:\.\d+)?\s*\|'
-            r'.*?Time\s+(\d+):(\d+\.\d+)\s*\|'
-            r'.*?Reward\s+([-\d.]+)\s*\|'
-            r'.*?Avg\(10\)\s+([-\d.]+)\s*\|'
-            r'(?:.*?Dist\s+([\d.]+)m\s*\(\s*([\d.]+)%\)\s*\|)?'
-            r'.*?End:\s+(\w+)',
-            line
-        )
+        m = ep_re.search(line)
         if not m:
             continue
 
@@ -58,19 +66,10 @@ def parse_log():
         dist_m   = float(m.group(6)) if m.group(6) else None
         dist_pct = float(m.group(7)) if m.group(7) else None
         reason   = m.group(8)
-        t_sec    = mins * 60 + secs
-
-        abs_ep = ep_num   # episode numbers are now globally unique
-
-        if pending_rollback is not None:
-            if episodes:
-                low_avg, peak_avg = pending_rollback
-                rollback_segs.append((episodes[-1]['ep'], low_avg, peak_avg))
-            pending_rollback = None
 
         episodes.append({
-            'ep':       abs_ep,
-            'time':     t_sec,
+            'ep':       ep_num,
+            'time':     mins * 60 + secs,
             'reward':   reward,
             'avg10':    avg10,
             'dist_m':   dist_m,
@@ -78,155 +77,126 @@ def parse_log():
             'reason':   reason,
         })
 
-    return episodes, rollback_segs
+    return episodes, restart_eps
 
 
-def draw(episodes, rollback_segs, ax1, ax2, ax3):
-    ax1.cla()
-    ax2.cla()
-    ax3.cla()
+GRAY_HEX = f'#{int(GRAY*255):02x}{int(GRAY*255):02x}{int(GRAY*255):02x}'
+
+def _scatter_with_fade(ax, xs, ys, reasons, is_recent, sizes, alphas):
+    """Two vectorized scatter calls: one gray batch, one colored batch."""
+    xs, ys = list(xs), list(ys)
+    old  = [i for i in range(len(xs)) if not is_recent[i]]
+    new  = [i for i in range(len(xs)) if is_recent[i]]
+    if old:
+        ax.scatter([xs[i] for i in old], [ys[i] for i in old],
+                   color=GRAY_HEX, s=float(sizes[old[0]]), alpha=0.35,
+                   zorder=2, linewidths=0)
+    if new:
+        ax.scatter([xs[i] for i in new], [ys[i] for i in new],
+                   c=[COLOR_MAP.get(reasons[i], '#aaaaaa') for i in new],
+                   s=float(sizes[new[0]]), alpha=0.85,
+                   zorder=3, linewidths=0)
+
+
+def draw(episodes, restart_eps, ax1, ax2, ax3):
+    ax1.cla(); ax2.cla(); ax3.cla()
 
     if not episodes:
         ax1.set_title('No data yet')
         return
 
-    eps     = [d['ep']     for d in episodes]
+    n        = len(episodes)
+    RECENT_N = 50   # last N episodes get full termination color; rest are gray
+    # Boolean mask: True = recent (colored), False = old (gray)
+    is_recent = np.array([i >= n - RECENT_N for i in range(n)])
+    sizes     = np.where(is_recent, 30, 14).astype(float)
+    alphas    = np.where(is_recent, 0.85, 0.35)
+
     times   = [d['time']   for d in episodes]
     rewards = [d['reward'] for d in episodes]
     avg10s  = [d['avg10']  for d in episodes]
+    eps     = [d['ep']     for d in episodes]
     reasons = [d['reason'] for d in episodes]
 
-    # Determine which episodes belong to the current (latest) segment
-    last_rollback_ep = rollback_segs[-1][0] if rollback_segs else -1
-    colors = []
-    alphas = []
-    sizes  = []
-    for d in episodes:
-        if d['ep'] > last_rollback_ep:
-            colors.append(COLOR_MAP.get(d['reason'], '#aaaaaa'))
-            alphas.append(0.80)
-            sizes.append(28)
-        else:
-            colors.append('#bbbbbb')   # grayscale for pre-rollback episodes
-            alphas.append(0.35)
-            sizes.append(18)
+    # ── Legend patches (shared) ──────────────────────────────────────
+    leg_patches = [mpatches.Patch(color=COLOR_MAP[k], label=k)
+                   for k in COLOR_MAP if k != 'unknown']
 
-    # ── Graph 1: Track time vs Reward ────────────────────────────────
-    # Plot old (greyed) dots first, then current segment on top
-    old_t = [times[i]   for i, d in enumerate(episodes) if d['ep'] <= last_rollback_ep]
-    old_r = [rewards[i] for i, d in enumerate(episodes) if d['ep'] <= last_rollback_ep]
-    cur_t = [times[i]   for i, d in enumerate(episodes) if d['ep'] > last_rollback_ep]
-    cur_r = [rewards[i] for i, d in enumerate(episodes) if d['ep'] > last_rollback_ep]
-    cur_c = [COLOR_MAP.get(d['reason'], '#aaaaaa')
-             for d in episodes if d['ep'] > last_rollback_ep]
-
-    if old_t:
-        ax1.scatter(old_t, old_r, c='#cccccc', s=18, alpha=0.35, zorder=2, label='before rollback')
-    if cur_t:
-        ax1.scatter(cur_t, cur_r, c=cur_c, s=28, alpha=0.80, zorder=3)
-
+    # ── Graph 1: Track time × Reward (fade to gray) ──────────────────
+    _scatter_with_fade(ax1, times, rewards, reasons, is_recent, sizes, alphas)
     ax1.set_xlabel('Episode track time (seconds)', fontsize=10)
     ax1.set_ylabel('Reward', fontsize=10)
     ax1.set_title('Track time  ×  Reward', fontsize=11)
-    ax1.grid(True, alpha=0.25)
+    ax1.grid(True, alpha=0.20)
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}k'))
+    ax1.legend(handles=leg_patches, fontsize=8, loc='upper left')
 
-    handles = [mpatches.Patch(color=c, label=l) for l, c in COLOR_MAP.items() if l != 'unknown']
-    if old_t:
-        handles.append(mpatches.Patch(color='#cccccc', label='before rollback'))
-    ax1.legend(handles=handles, fontsize=8, loc='upper left')
+    # ── Graph 2: continuous line on sequential index (no zigzag from branches) ──
+    seq = list(range(n))   # 0,1,2,... — strictly increasing, never zigzags
+    cut = max(0, n - RECENT_N)
+    if cut > 0:
+        ax2.plot(seq[:cut + 1], avg10s[:cut + 1],
+                 color='#bbbbbb', linewidth=1.0, alpha=0.55, zorder=2)
+    ax2.plot(seq[cut:], avg10s[cut:],
+             color='#1f77b4', linewidth=2.0, alpha=0.90, zorder=3, label='Avg(10)')
 
-    # ── Graph 2: Avg(10) with rollback segments ───────────────────────
-    # Split episodes into segments at each rollback point
-    split_eps = {rb[0] for rb in rollback_segs}
+    # Branch / session-change markers (index into seq is already the right x)
+    first_branch = True
+    for idx in restart_eps:
+        if 0 < idx < n:
+            lbl = 'Branch / restart' if first_branch else None
+            first_branch = False
+            ax2.axvline(x=idx, color='#888888', linestyle=':', linewidth=1.0,
+                        alpha=0.55, zorder=2, label=lbl)
 
-    seg_ep, seg_avg = [], []
-    segments = []
-
-    for d in episodes:
-        seg_ep.append(d['ep'])
-        seg_avg.append(d['avg10'])
-        if d['ep'] in split_eps:
-            segments.append((seg_ep[:], seg_avg[:]))
-            seg_ep, seg_avg = [], []
-
-    if seg_ep:
-        segments.append((seg_ep, seg_avg))
-
-    for i, (se, sa) in enumerate(segments):
-        ax2.plot(se, sa, color='#1f77b4', linewidth=1.6,
-                 label='Avg(10)' if i == 0 else None)
-
-    # Draw dashed vertical restore lines at each rollback
-    first_rb = True
-    for ep_before, low_avg, peak_avg in rollback_segs:
-        lbl = 'Rollback restore' if first_rb else None
-        first_rb = False
-        ax2.plot([ep_before, ep_before], [low_avg, peak_avg],
-                 color='#d62728', linestyle='--', linewidth=1.8,
-                 label=lbl, zorder=4)
-        ax2.axvline(x=ep_before, color='#d62728', linestyle=':', alpha=0.35, zorder=2)
-
-    # Horizontal line at all-time best avg10
-    best = max(avg10s)
-    ax2.axhline(y=best, color='#2ca02c', linestyle='--', linewidth=1.0,
-                alpha=0.6, label=f'Peak avg {best/1000:.0f}k')
-
-    ax2.set_xlabel('Episode', fontsize=10)
+    ax2.set_xlabel('Training step (sequential)', fontsize=10)
     ax2.set_ylabel('Avg(10) Reward', fontsize=10)
-    ax2.set_title('Rolling Average (10 eps) — dashed = rollback restore', fontsize=11)
-    ax2.grid(True, alpha=0.25)
+    ax2.set_title('Avg(10) rolling average', fontsize=11)
+    ax2.grid(True, alpha=0.20)
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}k'))
-    ax2.legend(fontsize=8)
+    ax2.legend(fontsize=8, loc='upper left')
 
-    # ── Graph 3: Track time vs % of track covered ─────────────────────
-    pct_eps = [d for d in episodes if d['dist_pct'] is not None]
+    # ── Graph 3: Track time × % of track (fade to gray) ──────────────
+    pct_eps = [(i, d) for i, d in enumerate(episodes) if d['dist_pct'] is not None]
     if pct_eps:
-        old_pt = [d['time'] for d in pct_eps if d['ep'] <= last_rollback_ep]
-        old_pp = [d['dist_pct'] for d in pct_eps if d['ep'] <= last_rollback_ep]
-        cur_pt = [d['time'] for d in pct_eps if d['ep'] > last_rollback_ep]
-        cur_pp = [d['dist_pct'] for d in pct_eps if d['ep'] > last_rollback_ep]
-        cur_pc = [COLOR_MAP.get(d['reason'], '#aaaaaa')
-                  for d in pct_eps if d['ep'] > last_rollback_ep]
-        if old_pt:
-            ax3.scatter(old_pt, old_pp, c='#cccccc', s=18, alpha=0.35, zorder=2)
-        if cur_pt:
-            ax3.scatter(cur_pt, cur_pp, c=cur_pc, s=28, alpha=0.80, zorder=3)
-        ax3.axhline(y=100, color='#2ca02c', linestyle='--', linewidth=1.0,
-                    alpha=0.5, label='Full lap')
-        best_pct = max(d['dist_pct'] for d in pct_eps)
-        ax3.axhline(y=best_pct, color='#ff7f0e', linestyle=':', linewidth=1.0,
-                    alpha=0.7, label=f'Best {best_pct:.0f}%')
-        handles = [mpatches.Patch(color=c, label=l) for l, c in COLOR_MAP.items() if l != 'unknown']
-        ax3.legend(handles=handles, fontsize=8, loc='upper left')
+        idxs, pdata = zip(*pct_eps)
+        _scatter_with_fade(
+            ax3,
+            [d['time']     for d in pdata],
+            [d['dist_pct'] for d in pdata],
+            [d['reason']   for d in pdata],
+            is_recent[list(idxs)],
+            sizes[list(idxs)],
+            alphas[list(idxs)],
+        )
+        ax3.legend(handles=leg_patches, fontsize=8, loc='upper left')
     else:
-        ax3.set_title('Track % — no dist data yet (needs new log format)')
+        ax3.set_title('Track % — no dist data yet')
+
     ax3.set_xlabel('Episode track time (seconds)', fontsize=10)
     ax3.set_ylabel('Track coverage (%)', fontsize=10)
-    ax3.set_title('Track time  x  % of track covered', fontsize=11)
+    ax3.set_title('Track time  ×  % of track covered', fontsize=11)
     ax3.set_ylim(0, 105)
-    ax3.grid(True, alpha=0.25)
+    ax3.grid(True, alpha=0.20)
 
 
 def main():
     plt.ion()
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 14))
     fig.suptitle('TORCS TD3 Training', fontsize=13, fontweight='bold')
-    plt.tight_layout(pad=3.0)
+    fig.tight_layout(pad=3.0)
 
-    while True:
-        episodes, rollback_segs = parse_log()
-        draw(episodes, rollback_segs, ax1, ax2, ax3)
-        plt.tight_layout(pad=3.0)
-        plt.draw()
-        plt.pause(0.1)
-        fig.savefig('training_progress.png', dpi=130, bbox_inches='tight')
-
-        # wait REFRESH_SECONDS, checking for window close
-        for _ in range(REFRESH_SECONDS * 10):
-            if not plt.fignum_exists(fig.number):
-                return
-            plt.pause(0.1)
+    _save_tick = 0
+    while plt.fignum_exists(fig.number):
+        episodes, restart_eps = parse_log()
+        draw(episodes, restart_eps, ax1, ax2, ax3)
+        _save_tick += 1
+        if _save_tick % 3 == 0:   # save PNG every 3rd refresh (every 30s)
+            try:
+                fig.savefig('training_progress.png', dpi=100, bbox_inches='tight')
+            except Exception:
+                pass
+        plt.pause(REFRESH_SECONDS)
 
 
 if __name__ == '__main__':

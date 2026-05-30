@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>Avg(10) is trending strongly upward — from ~6.8k after the recent restart at ep_000274.17 up to ~202k at ep_000351.17, with several full-lap finishes earlier (ep_265.15, ep_240.16, ep_274.17) and many 90% runs. The dominant failure is off_track at ~63-65% of the lap, which is a consistent learning bottleneck rather than a crash loop. The policy is clearly improving and re-learning competence quickly after the restart.</analysis>
+<action>No change. Avg(10) is rising consistently (200k+ and climbing), buffer is filling normally, and the agent is producing high-reward 89-90% laps regularly. Intervening now would only clear the buffer and lose momentum. Let training continue and reassess at the next check.</action>

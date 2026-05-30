@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>The current branch (.5) was launched from ep_000132.4 and is climbing strongly: Avg(10) went 56k → 121k → 132k → 137k → 134k → 149k → 160k, with multiple ~64% distance laps and rewards of 230k-241k in the last three episodes. This branch is clearly outperforming and trending upward, with the best individual episodes (~240k) and consistent half-to-two-thirds track coverage.</analysis>
+<action>No change. The .5 branch from ep_000132.4 is the best-performing line yet and Avg(10) is still rising (160.7k and climbing). Hot-swapping or altering params now would clear the buffer and interrupt healthy learning momentum. Let it continue.</action>

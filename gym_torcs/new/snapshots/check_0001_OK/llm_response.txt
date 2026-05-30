@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>Avg(10) is climbing steadily and just jumped to 32675 after ep_000044 hit 143159 reward covering 38% of the track (1217m) — the best episode by far. The agent is clearly learning to drive further; off_track is the dominant termination but distance covered is trending upward (10m→369m→1217m on breakthrough episodes). Training is healthy and improving.</analysis>
+<action>No change. The latest episode is a major breakthrough and Avg(10) is at its all-time high. Continuing from current state preserves the buffer and momentum — interrupting now would clear the buffer and waste the recent gains.</action>

@@ -1,0 +1,4 @@
+<decision>change</decision>
+<analysis>Avg(10) peaked at ~232k around ep_000326.17 and has since collapsed to ~60k as the policy drifted into a short off_track crash loop (dist consistently <3% over the last ~8 episodes). The agent still occasionally produces strong long runs (ep_000358/359 at ~63%), but the rolling average is clearly degrading — this is a forgetting/overfitting collapse, not a temporary dip. The best stable branch point in recent history is the cluster around ep_000326, which had the highest Avg(10).</analysis>
+<action>Hot-swapping back to ep_000326.17, the episode with the highest Avg(10) (231,786) before the decline. This is a pure episode swap (no param change, no restart) — the buffer clears and a new branch begins from the strongest checkpoint, abandoning the degraded recent trajectory.</action>
+<load_from>models/episodes/ep_000326.17</load_from>

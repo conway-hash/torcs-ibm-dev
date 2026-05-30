@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000161.12
+
+Analysis:
+Branch 14 (from ep_000161.13) has collapsed — Avg(10) fell from ~141k at swap to ~36k now, with the policy stuck in a short off-track crash loop (most episodes only ~10m, terminating at 0.3% distance). The strongest checkpoint in recent history is ep_000161.12, which actually FINISHED the full lap (3099m, reward 338k). Branch 13 also produced consistent ~190-210k episodes around ep_000161.13. The current branch 14 lineage is clearly worse than its parent and not recovering.
+
+Action:
+Hot-swapping to the best-performing checkpoint ep_000161.12 (the only episode that completed a full lap). This is an episode-only switch — no param changes, so the buffer clears and a fresh branch begins from the strongest policy weights we have. Avoiding param changes keeps the change conservative.

@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+The current branch (.18) loaded from ep_000326.17 is performing excellently — Avg(10) climbed from 70k to 248k over the last 10 episodes, with two consecutive "finished" laps (ep_335.18 reward 357k, ep_336.18 reward 353k) both hitting near 100% distance. This is the best sustained performance in the entire history.
+
+Action:
+No change. The branch-18 swap was the right call and the policy is now converging to full-lap completion. Avg(10) is rising sharply and the agent just finished two full laps back-to-back. Let it continue running to consolidate these gains.

@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch .15 is the strongest run so far — it peaked at avg10 ~208k around ep_000185.15 and is consolidating around 130-200k with frequent full-distance (63%+) laps and occasional 80-100% runs. The lower-reward episodes are off-track resets early in the lap, not policy collapse; the high-reward episodes consistently reach 1900-2000m. This is healthy learning with normal exploration variance.
+
+Action:
+No change. The current .15 branch is the best-performing lineage in the entire history, buffer is filling well (27%), and the policy reliably produces long, fast laps. Switching episodes now would clear the buffer and discard momentum. Let it continue training to push past the ~63% off-track barrier.

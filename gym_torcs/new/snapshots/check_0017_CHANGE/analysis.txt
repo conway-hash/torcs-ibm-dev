@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000132.4
+
+Analysis:
+The branch-4 line (ep_000131.4/132.4) reached the best sustained performance with Avg(10) ~207k-213k and a 90% lap on ep_000145.4 (304k). Subsequent re-branches from ep_000132.4 (branches .5, .6, .7) have all degraded — branch .7 is stuck around Avg(10) 80k-85k, far below the .4 peak. We are repeatedly re-rolling from the same checkpoint with a fresh empty buffer and each time landing in worse local behavior.
+
+Action:
+Stop the unproductive re-branching from ep_000132.4. Hot-swap back to the strongest checkpoint, ep_000132.4, which had the best Avg(10) (213578) and led to the 90% lap. No param/reward changes — the policy itself is genuinely the best we've seen; the regressions come from empty-buffer relearning, so giving it another clean continuation from the peak is the best move while keeping everything else stable.

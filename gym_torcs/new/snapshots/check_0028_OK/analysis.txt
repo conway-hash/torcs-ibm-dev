@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+The current branch (.15) loaded from ep_000161.12 is performing well — it has produced multiple ~190-200k reward episodes (ep_000169.15 at 199k, ep_000173.15 at 202k, ep_000174.15 at 195k) reaching ~63% track distance. The agent has a strong policy capable of full laps (ep_000161.12 finished 100% at 338k reward). The recurring pattern is a bimodal split: good runs reach 60-65% distance while bad runs spin off in the first 10m, which is exploration/spawn variance rather than policy collapse.
+
+Action:
+No change. Avg(10) is rising (67k→81k→96k over the last three episodes) and the branch contains repeated high-reward 60%+ distance runs from a checkpoint lineage that already achieved a full lap. Swapping now would clear the buffer and lose this momentum. Letting it continue to consolidate the policy is the conservative, evidence-based choice.

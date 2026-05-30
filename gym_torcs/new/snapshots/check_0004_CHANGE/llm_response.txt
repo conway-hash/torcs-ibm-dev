@@ -1,0 +1,3 @@
+<decision>change</decision>
+<analysis>The current branch.1 is healthy and climbing — Avg(10) rose from 34601 (ep_75.1) to 50615 (ep_77.1), with two strong ~119k laps (ep_76.1, ep_77.1) showing the policy is rediscovering the ~40% distance runs. This branch (loaded from ep_000053) is clearly superior to the original branch-0 path which had collapsed to ~13k. No action needed beyond confirming we stay on this trajectory; the buffer is still filling (4.9%) and improvement is ongoing.</analysis>
+<action>Training on branch .1 is improving steadily with Avg(10) trending up and producing high-reward full-section laps. Leaving it running — switching now would clear the buffer and discard momentum. No param or reward changes.</action>

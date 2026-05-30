@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+The current branch (.4, loaded from ep_000091.3) is the strongest run yet. Avg(10) climbed steadily from ~5k at swap to 182,955 at ep_000125.4, with consistent 200k+ reward episodes reaching 64-67% track distance. The damage crash-loop that plagued earlier branches has cleared, and termination is now almost entirely off_track at high distances — a sign the policy is learning to drive fast and far.
+
+Action:
+No change. Avg(10) is rising and at an all-time high, with the buffer still filling (21%) and clear upward momentum. Intervening now would risk disrupting a healthy, improving policy. Let it continue accumulating experience.

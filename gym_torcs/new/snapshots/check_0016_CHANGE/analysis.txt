@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000132.4
+
+Analysis:
+Branch 4 (from ep_000132.4) achieved the best peak performance in this whole run — avg10 climbed to 213,578 around ep_000132.4 with consistent ~65% lap completion and reward >240k. The two subsequent re-branches (.5 and .6) both started from ep_000132.4 again but plateaued lower (avg10 ~135k-174k) with high variance and many short off_track episodes. The .4 branch's own ep_000132.4 snapshot is the demonstrably strongest checkpoint we have.
+
+Action:
+Hot-swapping to ep_000132.4, the strongest checkpoint (reward 242k, 68% lap, avg10 213k). The recent re-branches from this same parent failed to surpass it and are drifting down. No param changes — the policy is fundamentally healthy, it just needs a fresh buffer continuation from the best point rather than the degraded current branch. Note the dominant failure mode is still off_track at ~65% lap distance, so future reviews should consider a mild track-edge shaping term if it remains stuck.

@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 15 is the strongest run so far: Avg(10) climbed to ~208k around ep_000185.15 and is now consolidating in the 190k+ range, with consistent ~63% track coverage and one near-100% lap (286k reward at ep_000177.15). The policy is reliably completing large portions of the track and occasionally getting "too_slow" instead of crashing, which indicates genuine learning rather than a crash loop.
+
+Action:
+No change. This is the best branch we have and Avg(10) is healthy (191k current, peaked at 208k). The intermittent low-reward episodes are exploration noise, not a regression. Let it keep training to push past the recurring 63% off-track point.

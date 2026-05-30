@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 15 is performing well — Avg(10) climbed to a peak of ~208k around ep_185.15 and is now consolidating in the 129k-176k range with the policy reliably reaching 63% track distance (~1960m) on good episodes. The car completed a full lap once (ep_161.12, finished) and consistently produces 180k-215k reward runs, with the dips caused by intermittent early off_track crashes rather than a degrading policy. This is the healthiest branch we've had; the underlying actor is clearly competent.
+
+Action:
+No change. Avg(10) trend on the current branch is fundamentally healthy and trending up over the longer window — the variance is from occasional early-corner off_tracks, not policy collapse. The buffer is filling well (38%) and the agent keeps hitting ~63% distance consistently. Swapping or altering params now would discard accumulated buffer/learning progress for no clear gain. Let it keep training to consolidate the consistent-lap behavior.

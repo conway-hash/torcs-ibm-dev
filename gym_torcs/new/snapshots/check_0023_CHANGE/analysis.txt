@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000147.9
+
+Analysis:
+Branch 9 from ep_000132.4 reached a strong peak (Avg10 ~197k around ep_000147.9) but then collapsed into a low-reward off_track plateau (~44k) by ep_000163.9. The subsequent swaps to ep_000147.9 and ep_000142.9 (branches 10, 11) have not recovered — they sit at ~60-90k and keep ending off_track at ~2-12% distance. The strongest checkpoint family is branch 4/5/9 around ep_000132.4, which repeatedly produced 200k+ rewards and 60-90% track coverage.
+
+Action:
+Hot-swapping back to ep_000147.9 — the highest-performing checkpoint that hit Avg10 ~197k with consistent 65% track coverage. The current branch 11 has degraded far below this. No param/reward change since the policy clearly can learn this track; the issue is the recent branches drifted into worse local optima. Swapping clears the buffer and starts a fresh branch from the best known weights.

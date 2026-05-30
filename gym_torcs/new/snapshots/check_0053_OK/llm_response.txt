@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>The current branch (ep_xxx.18, swapped from ep_000326.17) just produced strong results: ep_000329.18 and ep_000330.18 hit 377k/347k rewards reaching ~90% track distance, with Avg(10) climbing to 218k. This is among the best performance in the whole history. The recurring failure remains off_track at the ~63% mark, but the trajectory is clearly improving on this fresh branch.</analysis>
+<action>No change. The recent swap to branch 18 is paying off — Avg(10) is rising (174k→217k→218k) with multiple near-complete laps. The buffer is still filling (4.6%), so the agent hasn't fully exploited the new branch yet. Interrupting now would clear the buffer and discard this momentum. Let it continue training.</action>

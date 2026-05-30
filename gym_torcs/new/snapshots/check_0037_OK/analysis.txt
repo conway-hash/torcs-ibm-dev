@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 15 is the strongest run so far: Avg(10) climbed to ~190k around ep_188-193 and remains healthy at ~160k with consistent ~63% distance laps. The recurring issue is off_track at ~63% (a specific corner the policy can't yet handle), interspersed with early off_track failures (~0.3% dist), but the buffer is now well-filled (54.7%) and the agent keeps producing strong episodes. No earlier branch reached this performance level.
+
+Action:
+No change. Current branch is the best-performing one to date with a healthy, well-filled buffer and Avg(10) oscillating around 160-190k. The off_track-at-63% pattern indicates a single hard corner the agent is still learning; clearing the buffer or swapping episodes now would discard valuable progress. Let training continue to consolidate the corner.

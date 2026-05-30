@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+The current branch (.4, loaded from ep_000091.3) is the strongest run yet. Avg(10) climbed steadily from ~4,777 at the swap to 164,100 by ep_000111.4, with multiple 200k+ episodes and distances reaching 64–67% of the track. This is a clear, sustained upward trajectory.
+
+Action:
+No change. The latest branch is producing the best avg10 in the entire history and is still climbing. Damage crash-loops from earlier branches are absent here, so I let it keep training to consolidate the gains.

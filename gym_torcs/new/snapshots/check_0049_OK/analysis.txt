@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Since the restart from ep_000274.17, the agent recovered quickly and Avg(10) climbed from ~6k up to a peak of ~231k around ep_000326, settling around 177k at ep_000344. This is a strong, healthy branch — substantially better than the pre-restart levels. The recurring failure mode is still off_track around 55-65% distance, but the agent now regularly completes full laps (multiple "finished" episodes) and posts high rewards.
+
+Action:
+No change. Avg(10) is in a healthy high regime (~177k) with frequent full-lap completions and 300k+ reward episodes. The recent dip from 231k to 177k is normal variance within this branch, not a sustained decline. Let training continue to consolidate the policy.

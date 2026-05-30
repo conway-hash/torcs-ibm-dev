@@ -1,0 +1,8 @@
+Decision : change
+Load from: none
+
+Analysis:
+The agent repeatedly plateaus at ~63% distance with off_track termination. Multiple branches have been spawned, and only sporadic "finished" episodes appear (ep265.15, ep240.16, ep161.12). The current branch 17 from ep_000265.15 is still in early buffer-refill but recovering well (217k-227k reward episodes already at 61% distance). The core problem isn't the checkpoint — it's that the car consistently goes off-track around the same point (~63%), suggesting the policy has learned a fast but unstable line it cannot correct.
+
+Action:
+Branch 17 (loaded from the best finisher ep_000265.15) is the strongest base and is already producing 220k+ episodes — it is recovering, so I keep it. Rather than swap again (which clears the buffer and resets progress), I let it continue but make a small reward-shaping change: add a mild trackPos-centering term that only activates near the track edge. This nudges the car back toward center before it leaves the track at the recurring ~63% failure point, without penalizing normal racing-line use. This is a 1-change conservative edit that addresses the actual failure mode (off_track loop) rather than reshuffling checkpoints.

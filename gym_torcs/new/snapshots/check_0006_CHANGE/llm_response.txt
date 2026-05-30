@@ -1,0 +1,4 @@
+<decision>change</decision>
+<analysis>The branch-2 run peaked early — ep_000085.2 hit 200116 reward (64% track), but the policy is now degrading and oscillating between strong laps (~140-170k) and damage-induced collapses (~4k). Avg(10) on branch 2 fell from a peak of 140177 down to 48699, a clear downtrend. The damage terminations are recurring, suggesting the recent training has destabilized the policy that performed well around ep_000085.2.</analysis>
+<action>Hot-swapping back to ep_000085.2 (the best-performing checkpoint at 200116 reward / 64% track distance) to recover the strong policy before the damage-loop degradation. No param changes — keeping the swap clean so train.py doesn't restart and we can re-explore from the best branch point.</action>
+<load_from>models/episodes/ep_000085.2</load_from>

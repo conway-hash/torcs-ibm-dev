@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>Branch 4 (started from ep_000091.3) is the strongest run yet. Avg(10) climbed from ~32k to a peak of 178k and is now stable in the 160k-177k range with consistent ~65% lap distance on the best episodes. The policy is clearly learning to drive far — many episodes reaching 2000m+ before going off track, which is now the dominant failure mode rather than early damage crashes.</analysis>
+<action>No changes. The current branch is performing far better than any earlier checkpoint, Avg(10) is healthy and the buffer is filling (15.6%). The remaining off_track terminations at ~65% of the lap suggest the agent needs more time to refine high-speed cornering; let training continue to accumulate experience before intervening.</action>

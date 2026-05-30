@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 9 (ep_000133.9 onward) is on a clean upward Avg(10) trajectory: 57k → 116k → 96k → 85k → 98k → 115k → 128k → 139k, with the latest episode ep_000140.9 hitting 213,981 (61.5% distance). This branch was seeded from the strong ep_000132.4 checkpoint and is rapidly recovering toward the ~200k+ levels that branch 4 reached. The key issue is the recurring failure pattern: the agent keeps fragmenting into short 10m off_track/damage episodes interleaved with strong full-distance runs, suggesting policy variance rather than collapse — but the current branch's Avg(10) is climbing steadily.
+
+Action:
+No change. The current branch (.9) shows a healthy, monotonically rising Avg(10) over the last several episodes, with the most recent episode being one of the strongest in the whole log (213,981 reward, 61.5% distance). Buffer is still filling (4.6%), so the policy will keep improving as it accumulates more diverse on-track experience. Intervening now would clear the buffer and discard momentum. Let it continue.

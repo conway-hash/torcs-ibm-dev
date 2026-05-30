@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+The branch-4 run (loaded from ep_000091.3, the best episode at 290890) is performing well: Avg(10) climbed to 107352 at ep_000103.4, the highest sustained average in the entire log. The agent now reliably completes long runs (ep_000095.4 reached 29%, ep_000103.4 hit 53.8% / 195703 reward) with far fewer damage terminations than earlier branches. Off_track remains the dominant termination, but the trend is clearly upward.
+
+Action:
+No change. The current branch-4 line has the best Avg(10) in the history and is still rising. Switching episodes or altering reward now would discard a productive buffer and momentum. Let it continue training to consolidate the longer, faster laps.

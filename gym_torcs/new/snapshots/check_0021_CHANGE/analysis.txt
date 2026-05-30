@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000147.9
+
+Analysis:
+Branch 9 (from ep_000132.4) reached a strong peak — avg10 hit 197,598 around ep_000147.9 with several episodes completing 65% of the track. But the last ~10 episodes collapsed into a persistent low-reward attractor (~43-45k, ~2% distance, off_track) that drove avg10 down to 43,952. This is a sudden degradation in an otherwise excellent branch, not slow drift.
+
+Action:
+The policy in this branch degraded after ep_000152.9 and is now stuck in a repetitive early-off-track loop. I'm hot-swapping back to ep_000147.9, which is near the branch's peak performance (avg10 ~197k, 65% track coverage), to resume training from a healthier checkpoint with a fresh buffer. No parameter changes — the recipe was working well before the collapse.
