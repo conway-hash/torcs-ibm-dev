@@ -17,7 +17,6 @@ TORCS_RACE_WAIT = 8   # seconds to wait for track to load after menu
 def _launch_torcs():
     subprocess.Popen(TORCS_EXE, cwd=os.path.dirname(TORCS_EXE))
     time.sleep(TORCS_LOAD_WAIT)
-    # Navigate: Enter (Race) -> Enter (Quick Race) -> Enter (New Race)
     pyautogui.press('enter')
     time.sleep(0.3)
     pyautogui.press('enter')
@@ -32,8 +31,8 @@ def _kill_torcs():
 
 
 class TorcsEnv:
-    terminal_judge_start = 100
-    termination_limit_progress = 5   # [km/h]
+    terminal_judge_start = 150
+    termination_limit_progress = 2
     default_speed = 50
 
     initial_reset = True
@@ -86,7 +85,6 @@ class TorcsEnv:
                     (client.S.d['wheelSpinVel'][0] + client.S.d['wheelSpinVel'][1]) > 5):
                 action_torcs['accel'] -= .2
         else:
-            # actor outputs [-1,1] via Tanh; remap to [0,1] for TORCS accel/brake
             action_torcs['accel'] = (this_action['accel'] + 1.0) / 2.0
             action_torcs['brake'] = max(0.0, this_action['brake'])
 
@@ -113,58 +111,70 @@ class TorcsEnv:
         client.respond_to_server()
         client.get_servers_input()
 
-        # TORCS sent ***shutdown*** — server ended race
         if client.so is None:
             self.observation = self.make_observaton(obs_pre)
-            finish_bonus = 50000.0 + (5000000.0 / self.time_step)
+            finish_bonus = 5000.0 + (50000.0 / max(self.time_step, 1))
             race_time = obs_pre.get('curLapTime', 0.0)
-            return self.get_obs(), finish_bonus, True, False, {'term_reason': 'finished', 'time': race_time}
+            dist = float(obs_pre.get('distFromStart', 0.0))
+            return self.get_obs(), finish_bonus, True, False, {
+                'term_reason': 'finished', 'time': race_time, 'dist_from_start': dist}
 
         obs = client.S.d
         self.observation = self.make_observaton(obs)
+        dist = float(obs.get('distFromStart', 0.0))
 
-        # Lap complete via lastLapTime sensor
         if obs.get('lastLapTime', 0) > 0:
             lap_time = obs['lastLapTime']
             print(f"### LAP FINISHED in {lap_time:.1f}s ###")
-            finish_bonus = 50000.0 + (5000000.0 / self.time_step)
+            finish_bonus = 5000.0 + (50000.0 / max(self.time_step, 1))
             client.R.d['meta'] = True
             client.respond_to_server()
-            return self.get_obs(), finish_bonus, True, False, {'term_reason': 'finished', 'time': lap_time}
+            return self.get_obs(), finish_bonus, True, False, {
+                'term_reason': 'finished', 'time': lap_time, 'dist_from_start': dist}
 
-        track = np.array(obs['track'])
-        sp = np.array(obs['speedX'])
-        sp_y = np.array(obs['speedY'])
+        track    = np.array(obs['track'])
+        sp       = np.array(obs['speedX'])
         progress = sp * np.cos(obs['angle'])
 
-        # Gentle smoothness nudge — discourages oscillation without blocking cornering
-        steer_delta = abs(float(u[0]) - prev_steer)
-        smoothness_penalty = 0.5 * steer_delta
+        # ── Reward: go fast, go forward, don't drift ─────────────────
+        # No trackPos penalty — the car should use the full track width.
+        # Good racing lines hug the edge; only punish leaving the track entirely.
+        reward = sp * np.cos(obs['angle']) - sp * abs(np.sin(obs['angle']))
 
-        reward = progress + 0.3 * sp - 0.5 * abs(sp_y) - 2.0 - smoothness_penalty
+        # Survival bonus: every on-track step beats crashing early
+        if track.min() > 0:
+            reward += 2.0
+
+        # Discourage near-zero speed (prevents stall attractor)
+        if sp < 0.3:
+            reward -= 4.0
+
+        # Clip to keep Q-values stable
+        reward = float(np.clip(reward, -50.0, 50.0))
+
         term_reason = None
 
         if obs['damage'] - obs_pre['damage'] > 0:
-            reward -= 1000
+            reward -= 40
             client.R.d['meta'] = True
             term_reason = 'damage'
 
         episode_terminate = False
         if track.min() < 0:
-            reward -= 1000
+            reward -= 60
             episode_terminate = True
             client.R.d['meta'] = True
             term_reason = 'off_track'
 
         if self.terminal_judge_start < self.time_step:
             if progress < self.termination_limit_progress:
-                reward -= 1000
+                reward -= 40
                 episode_terminate = True
                 client.R.d['meta'] = True
                 term_reason = 'too_slow'
 
         if np.cos(obs['angle']) < 0:
-            reward -= 1000
+            reward -= 60
             episode_terminate = True
             client.R.d['meta'] = True
             term_reason = 'backwards'
@@ -175,7 +185,9 @@ class TorcsEnv:
 
         self.time_step += 1
 
-        return self.get_obs(), reward, client.R.d['meta'], False, {'term_reason': term_reason, 'time': obs.get('curLapTime', 0.0)}
+        return self.get_obs(), reward, client.R.d['meta'], False, {
+            'term_reason': term_reason, 'time': obs.get('curLapTime', 0.0),
+            'dist_from_start': dist}
 
     def reset(self, relaunch=False, seed=None, options=None):
         self.time_step = 0

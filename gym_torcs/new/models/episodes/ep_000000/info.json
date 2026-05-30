@@ -1,0 +1,10 @@
+{
+  "migrated_from_state_dim": 24,
+  "state_dim": 29,
+  "ep_num": 0,
+  "branch": 0,
+  "reward": 0,
+  "avg10": 0,
+  "term_reason": "migrated",
+  "total_steps": 0
+}

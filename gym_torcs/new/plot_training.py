@@ -39,10 +39,11 @@ def parse_log():
             continue
 
         m = re.match(
-            r'Ep\s+(\d+)\s*\|'
+            r'Ep\s+ep_(\d+)(?:\.\d+)?\s*\|'
             r'.*?Time\s+(\d+):(\d+\.\d+)\s*\|'
             r'.*?Reward\s+([-\d.]+)\s*\|'
             r'.*?Avg\(10\)\s+([-\d.]+)\s*\|'
+            r'(?:.*?Dist\s+([\d.]+)m\s*\(\s*([\d.]+)%\)\s*\|)?'
             r'.*?End:\s+(\w+)',
             line
         )
@@ -54,35 +55,36 @@ def parse_log():
         secs     = float(m.group(3))
         reward   = float(m.group(4))
         avg10    = float(m.group(5))
-        reason   = m.group(6)
+        dist_m   = float(m.group(6)) if m.group(6) else None
+        dist_pct = float(m.group(7)) if m.group(7) else None
+        reason   = m.group(8)
         t_sec    = mins * 60 + secs
 
-        if ep_num == 0 and prev_ep_num > 0:
-            cumulative_offset += prev_ep_num + 1
-        prev_ep_num = ep_num
-        abs_ep = cumulative_offset + ep_num
+        abs_ep = ep_num   # episode numbers are now globally unique
 
         if pending_rollback is not None:
-            # rollback fired after the previous episode
             if episodes:
                 low_avg, peak_avg = pending_rollback
                 rollback_segs.append((episodes[-1]['ep'], low_avg, peak_avg))
             pending_rollback = None
 
         episodes.append({
-            'ep':     abs_ep,
-            'time':   t_sec,
-            'reward': reward,
-            'avg10':  avg10,
-            'reason': reason,
+            'ep':       abs_ep,
+            'time':     t_sec,
+            'reward':   reward,
+            'avg10':    avg10,
+            'dist_m':   dist_m,
+            'dist_pct': dist_pct,
+            'reason':   reason,
         })
 
     return episodes, rollback_segs
 
 
-def draw(episodes, rollback_segs, ax1, ax2):
+def draw(episodes, rollback_segs, ax1, ax2, ax3):
     ax1.cla()
     ax2.cla()
+    ax3.cla()
 
     if not episodes:
         ax1.set_title('No data yet')
@@ -177,16 +179,44 @@ def draw(episodes, rollback_segs, ax1, ax2):
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}k'))
     ax2.legend(fontsize=8)
 
+    # ── Graph 3: Track time vs % of track covered ─────────────────────
+    pct_eps = [d for d in episodes if d['dist_pct'] is not None]
+    if pct_eps:
+        old_pt = [d['time'] for d in pct_eps if d['ep'] <= last_rollback_ep]
+        old_pp = [d['dist_pct'] for d in pct_eps if d['ep'] <= last_rollback_ep]
+        cur_pt = [d['time'] for d in pct_eps if d['ep'] > last_rollback_ep]
+        cur_pp = [d['dist_pct'] for d in pct_eps if d['ep'] > last_rollback_ep]
+        cur_pc = [COLOR_MAP.get(d['reason'], '#aaaaaa')
+                  for d in pct_eps if d['ep'] > last_rollback_ep]
+        if old_pt:
+            ax3.scatter(old_pt, old_pp, c='#cccccc', s=18, alpha=0.35, zorder=2)
+        if cur_pt:
+            ax3.scatter(cur_pt, cur_pp, c=cur_pc, s=28, alpha=0.80, zorder=3)
+        ax3.axhline(y=100, color='#2ca02c', linestyle='--', linewidth=1.0,
+                    alpha=0.5, label='Full lap')
+        best_pct = max(d['dist_pct'] for d in pct_eps)
+        ax3.axhline(y=best_pct, color='#ff7f0e', linestyle=':', linewidth=1.0,
+                    alpha=0.7, label=f'Best {best_pct:.0f}%')
+        handles = [mpatches.Patch(color=c, label=l) for l, c in COLOR_MAP.items() if l != 'unknown']
+        ax3.legend(handles=handles, fontsize=8, loc='upper left')
+    else:
+        ax3.set_title('Track % — no dist data yet (needs new log format)')
+    ax3.set_xlabel('Episode track time (seconds)', fontsize=10)
+    ax3.set_ylabel('Track coverage (%)', fontsize=10)
+    ax3.set_title('Track time  x  % of track covered', fontsize=11)
+    ax3.set_ylim(0, 105)
+    ax3.grid(True, alpha=0.25)
+
 
 def main():
     plt.ion()
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 14))
     fig.suptitle('TORCS TD3 Training', fontsize=13, fontweight='bold')
     plt.tight_layout(pad=3.0)
 
     while True:
         episodes, rollback_segs = parse_log()
-        draw(episodes, rollback_segs, ax1, ax2)
+        draw(episodes, rollback_segs, ax1, ax2, ax3)
         plt.tight_layout(pad=3.0)
         plt.draw()
         plt.pause(0.1)

@@ -1,48 +1,52 @@
 import argparse
 import sys
+import json
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import random
 import os
+import time as _time
 
 from gym_torcs import TorcsEnv
 
 # ── Hyperparameters ────────────────────────────────────────────────
-STATE_DIM      = 24
+STATE_DIM      = 29
 ACTION_DIM     = 3
-MAX_EPISODES   = 10000
-MAX_STEPS      = 10000
+MAX_EPISODES   = 100_000
+MAX_STEPS      = 10_000
 BATCH_SIZE     = 256
 BUFFER_SIZE    = 500_000
 GAMMA          = 0.99
-TAU            = 0.001
-ACTOR_LR       = 3e-6
-CRITIC_LR      = 3e-6
-POLICY_NOISE   = 0.08
-NOISE_CLIP     = 0.15
-POLICY_DELAY   = 3
-WARMUP_STEPS   = 0
-SEED_STEPS     = 20_000
-EXPL_NOISE     = 0.08
+TAU            = 0.005
+ACTOR_LR       = 3e-5
+CRITIC_LR      = 3e-5
+POLICY_NOISE   = 0.10
+NOISE_CLIP     = 0.20
+POLICY_DELAY   = 2
+WARMUP_STEPS   = 5_000
+SEED_STEPS     = 2_000
+EXPL_NOISE     = 0.15
 RELAUNCH_EVERY = 20
-MODEL_DIR      = 'models'
+TRAIN_FREQ     = 2
+ACCEL_FLOOR    = 0.15   # TORCS accel min → actor-space: 2*0.15-1 = -0.70
+
+# Episode model storage
+EPISODE_DIR    = 'models/episodes'
+SAVE_EVERY     = 1          # save every N episodes (1 = every episode)
+KEEP_LAST_N    = 0          # 0 = keep all; N > 0 = delete oldest beyond N
+
+# Control flags written by auto_train.py
 LOG_FILE       = 'training_log.txt'
-TRAIN_FREQ     = 4       # train once per N env steps (reduces update rate)
-ROLLBACK_SEED  = 2_000   # steps without training after rollback (rebuild buffer)
+STOP_FLAG      = 'stop.flag'
+LOAD_FLAG      = 'load.flag'   # auto_train writes episode path here to hot-swap model
 
 # Prioritized Experience Replay
-PER_ALPHA          = 0.6    # prioritisation (0=uniform, 1=full)
-PER_BETA_START     = 0.4    # IS correction start, anneals to 1.0
-PER_BETA_INCREMENT = 0.0001 # per training step
+PER_ALPHA          = 0.6
+PER_BETA_START     = 0.4
+PER_BETA_INCREMENT = 0.0001
 
-# Auto-rollback: if Avg(10) drops this fraction below its peak, reload best-avg checkpoint
-ROLLBACK_DROP     = 0.60
-ROLLBACK_COOLDOWN = 30      # min episodes between rollbacks
-ROLLBACK_PATIENCE = 40      # also rollback if no new peak for this many episodes
-
-DEVICE = torch.device('cpu')
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 # ── Noise ──────────────────────────────────────────────────────────
@@ -70,12 +74,13 @@ def obs_to_state(obs):
         np.atleast_1d(obs.speedZ),
         np.atleast_1d(obs.angle),
         np.atleast_1d(obs.trackPos),
+        np.atleast_1d(obs.rpm) / 10000.0,
+        np.atleast_1d(obs.wheelSpinVel) / 100.0,
     ]).astype(np.float32)
 
 
 # ── Prioritized Replay Buffer ──────────────────────────────────────
 class SumTree:
-    """Binary segment tree for O(log N) priority sampling."""
     def __init__(self, capacity):
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1, dtype=np.float64)
@@ -99,8 +104,7 @@ class SumTree:
                 s -= self.tree[left]
                 idx = right
 
-    def total(self):
-        return self.tree[0]
+    def total(self):  return self.tree[0]
 
     def add(self, priority, data):
         idx = self.ptr + self.capacity - 1
@@ -118,6 +122,12 @@ class SumTree:
         idx = self._retrieve(0, s)
         return idx, self.tree[idx], self.data[idx - self.capacity + 1]
 
+    def clear(self):
+        self.tree[:] = 0.0
+        self.data = [None] * self.capacity
+        self.size = 0
+        self.ptr  = 0
+
 
 class PrioritizedReplayBuffer:
     def __init__(self, max_size):
@@ -134,18 +144,15 @@ class PrioritizedReplayBuffer:
         batch, idxs, priorities = [], [], []
         segment = self.tree.total() / batch_size
         self.beta = min(1.0, self.beta + PER_BETA_INCREMENT)
-
         for i in range(batch_size):
             s = random.uniform(segment * i, segment * (i + 1))
             idx, priority, data = self.tree.get(s)
             batch.append(data)
             idxs.append(idx)
             priorities.append(max(priority, self.epsilon))
-
         probs   = np.array(priorities) / self.tree.total()
         weights = (self.tree.size * probs) ** (-self.beta)
         weights /= weights.max()
-
         s, a, r, s2, d = zip(*batch)
         return (
             torch.FloatTensor(np.array(s)).to(DEVICE),
@@ -163,6 +170,11 @@ class PrioritizedReplayBuffer:
             self.tree.update(idx, priority)
             self.max_priority = max(self.max_priority, priority)
 
+    def clear(self):
+        self.tree.clear()
+        self.max_priority = 1.0
+        self.beta = PER_BETA_START
+
     def __len__(self):
         return self.tree.size
 
@@ -176,7 +188,6 @@ class Actor(nn.Module):
             nn.Linear(400, 300),       nn.ReLU(),
             nn.Linear(300, action_dim), nn.Tanh(),
         )
-
     def forward(self, state):
         return self.net(state)
 
@@ -194,11 +205,9 @@ class Critic(nn.Module):
             nn.Linear(400, 300),                    nn.ReLU(),
             nn.Linear(300, 1),
         )
-
     def forward(self, state, action):
         sa = torch.cat([state, action], dim=1)
         return self.q1(sa), self.q2(sa)
-
     def q1_only(self, state, action):
         sa = torch.cat([state, action], dim=1)
         return self.q1(sa)
@@ -223,115 +232,209 @@ class TD3:
         s = torch.FloatTensor(state).unsqueeze(0).to(DEVICE)
         return self.actor(s).detach().cpu().numpy()[0]
 
-    def train(self, replay_buffer):
+    def train_step(self, replay_buffer):
         if len(replay_buffer) < BATCH_SIZE:
             return
-
         self.total_it += 1
         s, a, r, s2, d, idxs, weights = replay_buffer.sample(BATCH_SIZE)
-
         with torch.no_grad():
             noise  = (torch.randn_like(a) * POLICY_NOISE).clamp(-NOISE_CLIP, NOISE_CLIP)
             next_a = (self.actor_target(s2) + noise).clamp(-1, 1)
             q1_t, q2_t = self.critic_target(s2, next_a)
             q_target = r + GAMMA * (1 - d) * torch.min(q1_t, q2_t)
-
         q1, q2 = self.critic(s, a)
-
-        # Update PER priorities before backward pass
         td_errors = (q1.detach() - q_target).abs().cpu().numpy().flatten()
         replay_buffer.update_priorities(idxs, td_errors)
-
-        # Importance-weighted critic loss
         critic_loss = (weights * (q1 - q_target).pow(2)).mean() + \
                       (weights * (q2 - q_target).pow(2)).mean()
-
         self.critic_opt.zero_grad()
         critic_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
         self.critic_opt.step()
-
         if self.total_it % POLICY_DELAY == 0:
             actor_loss = -self.critic.q1_only(s, self.actor(s)).mean()
             self.actor_opt.zero_grad()
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=0.5)
             self.actor_opt.step()
-
             for p, tp in zip(self.actor.parameters(), self.actor_target.parameters()):
                 tp.data.copy_(TAU * p.data + (1 - TAU) * tp.data)
             for p, tp in zip(self.critic.parameters(), self.critic_target.parameters()):
                 tp.data.copy_(TAU * p.data + (1 - TAU) * tp.data)
 
-    def save(self, path=MODEL_DIR, quiet=False):
+    def save(self, path):
         os.makedirs(path, exist_ok=True)
         torch.save(self.actor.state_dict(),  f'{path}/actor.pth')
         torch.save(self.critic.state_dict(), f'{path}/critic.pth')
-        if not quiet:
-            print(f"  [saved] {path}/")
 
-    def load(self, path=MODEL_DIR, quiet=False):
-        self.actor.load_state_dict(torch.load(f'{path}/actor.pth', map_location=DEVICE))
+    def load(self, path):
+        self.actor.load_state_dict(torch.load(f'{path}/actor.pth',  map_location=DEVICE))
         self.critic.load_state_dict(torch.load(f'{path}/critic.pth', map_location=DEVICE))
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
-        if not quiet:
-            print(f"  [loaded] {path}/")
+        print(f'  [loaded] {path}')
 
+
+# ── Episode storage helpers ────────────────────────────────────────
+#
+# Naming:  ep_000001        (branch 0 — original run)
+#          ep_002001.1      (branch 1 — after AI jumped to ep_002000)
+#          ep_001501.2      (branch 2 — after AI jumped again)
+#
+# _state.json tracks: next episode number, current branch, last saved path.
+# This survives restarts and ensures no name collisions.
+
+import re as _re
+import shutil as _shutil
+
+STATE_FILE = os.path.join(EPISODE_DIR, '_state.json')
+
+
+def _ep_name(ep_num, branch):
+    return f'ep_{ep_num:06d}' if branch == 0 else f'ep_{ep_num:06d}.{branch}'
+
+
+def _parse_ep_name(dirname):
+    """Parse 'ep_000350' or 'ep_000350.2' → (ep_num, branch) or None."""
+    m = _re.match(r'^ep_(\d{6})(?:\.(\d+))?$', dirname)
+    if not m:
+        return None
+    return int(m.group(1)), (int(m.group(2)) if m.group(2) else 0)
+
+
+def _read_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    return {'next_ep': 0, 'branch': 0, 'last_dir': None}
+
+
+def _write_state(s):
+    os.makedirs(EPISODE_DIR, exist_ok=True)
+    tmp = STATE_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(s, f, indent=2)
+    os.replace(tmp, STATE_FILE)
+
+
+def _save_episode(agent, st, reward, avg10, term_reason, total_steps):
+    """Save weights + metadata. Updates and writes st in-place. Returns saved path."""
+    ep_num = st['next_ep']
+    branch = st['branch']
+    if ep_num % SAVE_EVERY != 0:
+        st['next_ep'] += 1
+        return None
+    name = _ep_name(ep_num, branch)
+    path = os.path.join(EPISODE_DIR, name)
+    agent.save(path)
+    with open(f'{path}/info.json', 'w') as f:
+        json.dump({'ep_num': ep_num, 'branch': branch,
+                   'reward': round(reward, 2), 'avg10': round(avg10, 2),
+                   'term_reason': term_reason, 'total_steps': total_steps}, f)
+    st['next_ep'] += 1
+    st['last_dir'] = path
+    _write_state(st)
+    if KEEP_LAST_N > 0:
+        dirs = sorted(
+            (p for d in os.listdir(EPISODE_DIR)
+             if _parse_ep_name(d) and (p := os.path.join(EPISODE_DIR, d))),
+            key=os.path.getmtime
+        )
+        for old in dirs[:-KEEP_LAST_N]:
+            _shutil.rmtree(old, ignore_errors=True)
+    return path
 
 
 # ── Training Loop ──────────────────────────────────────────────────
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cuda', action='store_true', help='train on GPU (CUDA)')
+    parser.add_argument('--cuda',      action='store_true')
+    parser.add_argument('--load-from', type=str, default=None,
+                        help='Episode dir to load, e.g. models/episodes/ep_000350')
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0]] + remaining
 
-    if args.cuda:
-        if torch.cuda.is_available():
-            DEVICE = torch.device('cuda')
-        else:
-            print('  [warning] --cuda specified but CUDA is not available, falling back to CPU')
+    if args.cuda and torch.cuda.is_available():
+        DEVICE = torch.device('cuda')
 
-    print(f"  [device] training on {DEVICE}")
+    print(f'  [device] {DEVICE}')
     env    = TorcsEnv(throttle=True, gear_change=False)
     agent  = TD3(STATE_DIM, ACTION_DIM)
     buffer = PrioritizedReplayBuffer(BUFFER_SIZE)
 
-    best_reward             = -np.inf
-    best_avg10              = -np.inf
-    rollback_cooldown       = 0
-    episodes_since_peak     = 0
-    steps_since_rollback    = ROLLBACK_SEED  # start ready to train
-    rollback_episode_window = []             # episode_rewards snapshot at peak avg
+    # ── Load checkpoint via _state.json ─────────────────────────
+    st          = _read_state()
+    loaded_from = None
 
-    # Load best checkpoint
-    best_dir = f'{MODEL_DIR}/best'
-    if os.path.exists(best_dir):
-        scored = []
-        for d in os.listdir(best_dir):
-            try:
-                scored.append((float(d), d))
-            except ValueError:
-                pass
-        if scored:
-            top_score, top = max(scored)
-            agent.load(f'{best_dir}/{top}')
-            best_reward = top_score
-            print(f"  [resume] loaded best checkpoint {top} — best_reward={top_score:.1f}")
-        elif os.path.exists(f'{MODEL_DIR}/actor.pth'):
-            agent.load()
-    elif os.path.exists(f'{MODEL_DIR}/actor.pth'):
-        agent.load()
+    if args.load_from:
+        lp = args.load_from
+        if os.path.exists(f'{lp}/actor.pth'):
+            agent.load(lp)
+            loaded_from = lp
+            # If jumping to a different episode than last saved → new branch
+            last = st.get('last_dir') or ''
+            if os.path.normpath(lp) != os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), last)):
+                st['branch'] += 1
+            parsed = _parse_ep_name(os.path.basename(lp))
+            if parsed:
+                st['next_ep'] = parsed[0] + 1
+            st['last_dir'] = lp
+        else:
+            print(f'  [warning] --load-from "{lp}" not found, falling through')
 
-    ou_steer = OUNoise(1, mu=0.0,  theta=0.15, sigma=0.15)
-    ou_accel = OUNoise(1, mu=0.5,  theta=1.0,  sigma=0.005)
-    ou_brake = OUNoise(1, mu=-0.9, theta=1.0,  sigma=0.002)
+    if loaded_from is None and st.get('last_dir'):
+        lp = st['last_dir']
+        full = lp if os.path.isabs(lp) else os.path.join(WORK_DIR, lp)
+        if os.path.exists(f'{full}/actor.pth'):
+            agent.load(full)
+            loaded_from = full
 
+    session_line = (f'=== Session {_time.strftime("%Y-%m-%d %H:%M:%S")} | '
+                    f'loaded: {loaded_from or "fresh"} | '
+                    f'next: {_ep_name(st["next_ep"], st["branch"])} ===')
+    print(session_line)
+    with open(LOG_FILE, 'a') as f:
+        f.write(session_line + '\n')
+
+    ou_steer = OUNoise(1, mu=0.0,  theta=0.15, sigma=0.10)
+    ou_accel = OUNoise(1, mu=0.4,  theta=0.5,  sigma=0.10)
+    ou_brake = OUNoise(1, mu=-0.9, theta=1.0,  sigma=0.02)
+
+    accel_floor_raw = 2.0 * ACCEL_FLOOR - 1.0
     total_steps     = 0
     episode_rewards = []
+    track_len_est   = 0.0   # metres — grows as agent covers more of the track
 
     for episode in range(MAX_EPISODES):
+
+        # ── Graceful stop ──────────────────────────────────────
+        if os.path.exists(STOP_FLAG):
+            print('  [auto] stop.flag — saving and exiting')
+            break
+
+        # ── Hot-swap: AI picked a different episode mid-run ────
+        if os.path.exists(LOAD_FLAG):
+            with open(LOAD_FLAG) as _f:
+                _swap_path = _f.read().strip()
+            os.remove(LOAD_FLAG)
+            if os.path.exists(f'{_swap_path}/actor.pth'):
+                agent.load(_swap_path)
+                buffer.clear()
+                st['branch'] += 1
+                parsed = _parse_ep_name(os.path.basename(_swap_path))
+                if parsed:
+                    st['next_ep'] = parsed[0] + 1
+                st['last_dir'] = _swap_path
+                episode_rewards = []
+                swap_line = (f'  [ai-swap] loaded {_swap_path} | '
+                             f'new branch={st["branch"]} | '
+                             f'next={_ep_name(st["next_ep"], st["branch"])}')
+                print(swap_line)
+                with open(LOG_FILE, 'a') as f:
+                    f.write(swap_line + '\n')
+            else:
+                print(f'  [ai-swap] path not found: {_swap_path}')
+
         relaunch = (episode % RELAUNCH_EVERY == 0)
         obs, _   = env.reset(relaunch=relaunch)
         state    = obs_to_state(obs)
@@ -343,26 +446,29 @@ if __name__ == '__main__':
         step           = 0
         term_reason    = 'max_steps'
         ep_time        = 0.0
+        ep_dist        = 0.0   # distFromStart at end of episode (metres)
 
         for step in range(MAX_STEPS):
             if total_steps < WARMUP_STEPS:
-                action = np.array([ou_steer.sample()[0], ou_accel.sample()[0], ou_brake.sample()[0]])
-                action = np.clip(action, -1, 1)
+                action = np.array([ou_steer.sample()[0],
+                                   ou_accel.sample()[0],
+                                   ou_brake.sample()[0]])
             else:
                 action = agent.select_action(state)
                 action[0] = np.clip(action[0] + ou_steer.sample()[0] * EXPL_NOISE, -1, 1)
                 action[1] = np.clip(action[1] + ou_accel.sample()[0] * EXPL_NOISE, -1, 1)
                 action[2] = np.clip(action[2] + ou_brake.sample()[0] * EXPL_NOISE, -1, 1)
 
+            action[1] = max(action[1], accel_floor_raw)
+            action    = np.clip(action, -1, 1)
+
             obs, reward, done, _, info = env.step(action)
             next_state = obs_to_state(obs)
+            ep_dist    = info.get('dist_from_start', ep_dist)
 
             buffer.add(state, action, reward, next_state, float(done))
-            steps_since_rollback += 1
-            if (total_steps > SEED_STEPS
-                    and steps_since_rollback >= ROLLBACK_SEED
-                    and total_steps % TRAIN_FREQ == 0):
-                agent.train(buffer)
+            if total_steps > SEED_STEPS and total_steps % TRAIN_FREQ == 0:
+                agent.train_step(buffer)
 
             state          = next_state
             episode_reward += reward
@@ -373,68 +479,37 @@ if __name__ == '__main__':
                 ep_time     = info.get('time', 0.0)
                 break
 
+        # Track length estimate: max distFromStart ever seen.
+        # Improves each run; locks to exact length after first lap completion.
+        if term_reason == 'finished':
+            # On lap completion distFromStart is near 0, so we can't use it directly.
+            # Instead keep the previous best estimate — it was already at track_len.
+            pass
+        else:
+            track_len_est = max(track_len_est, ep_dist)
+
+        pct = (ep_dist / track_len_est * 100) if track_len_est > 0 else 0.0
+
         episode_rewards.append(episode_reward)
-        avg_reward = np.mean(episode_rewards[-10:])
+        avg10      = float(np.mean(episode_rewards[-10:]))
         mins, secs = divmod(ep_time, 60)
         buf_pct    = 100.0 * len(buffer) / BUFFER_SIZE
+        ep_label   = _ep_name(st['next_ep'], st['branch'])
 
-        line = (
-            f"Ep {episode:4d} | "
-            f"Time {int(mins)}:{secs:05.2f} | "
-            f"Steps {step+1:5d} | "
-            f"Reward {episode_reward:8.1f} | "
-            f"Avg(10) {avg_reward:8.1f} | "
-            f"Buf {buf_pct:5.1f}% | "
-            f"Total {total_steps:7d} | "
-            f"End: {term_reason}"
-        )
+        line = (f'Ep {ep_label} | '
+                f'Time {int(mins)}:{secs:05.2f} | '
+                f'Steps {step+1:5d} | '
+                f'Reward {episode_reward:9.1f} | '
+                f'Avg(10) {avg10:9.1f} | '
+                f'Dist {ep_dist:6.0f}m ({pct:5.1f}%) | '
+                f'Buf {buf_pct:5.1f}% | '
+                f'Total {total_steps:7d} | '
+                f'End: {term_reason}')
         print(line)
         with open(LOG_FILE, 'a') as f:
             f.write(line + '\n')
 
-        # Save rollback checkpoint whenever avg10 hits a new high
-        episodes_since_peak += 1
-        if avg_reward > best_avg10:
-            best_avg10 = avg_reward
-            episodes_since_peak = 0
-            rollback_episode_window = episode_rewards[-10:].copy()
-            agent.save(f'{MODEL_DIR}/rollback', quiet=True)
-            rollback_cooldown = 0  # new peak → allow rollback immediately if it drops
-
-        # Auto-rollback if avg10 collapsed
-        rollback_cooldown = max(0, rollback_cooldown - 1)
-        pct_drop  = avg_reward < best_avg10 * (1 - ROLLBACK_DROP)
-        too_stale = (episodes_since_peak >= ROLLBACK_PATIENCE
-                     and avg_reward < best_avg10 * 0.95)  # must be at least 5% below peak
-        if (rollback_cooldown == 0
-                and len(episode_rewards) >= 10
-                and (pct_drop or too_stale)
-                and os.path.exists(f'{MODEL_DIR}/rollback/actor.pth')):
-            agent.load(f'{MODEL_DIR}/rollback', quiet=True)
-            buffer = PrioritizedReplayBuffer(BUFFER_SIZE)  # reset buffer on rollback
-            steps_since_rollback = 0                       # pause training for ROLLBACK_SEED steps
-            episode_rewards = rollback_episode_window.copy() # restore exact window from peak
-            episodes_since_peak = 0
-            rollback_cooldown = ROLLBACK_COOLDOWN
-            reason  = f"drop>{ROLLBACK_DROP*100:.0f}%" if pct_drop else f"no peak for {ROLLBACK_PATIENCE} eps"
-            rb_line = f"  [rollback] avg {avg_reward:.0f} vs peak {best_avg10:.0f} ({reason}) — weights + buffer reset"
-            print(rb_line)
-            with open(LOG_FILE, 'a') as f:
-                f.write(rb_line + '\n')
-
-        # Save best single-episode reward checkpoint
-        if episode_reward > best_reward:
-            best_reward = episode_reward
-            agent.save(f'{MODEL_DIR}/best/{episode_reward:.1f}')
-            best_line = f"  [best] ep {episode} reward {episode_reward:.1f}"
-            print(best_line)
-            with open(LOG_FILE, 'a') as f:
-                f.write(best_line + '\n')
-
-        # Save whenever a lap is finished
-        if term_reason == 'finished':
-            agent.save(f'{MODEL_DIR}/best/finish_latest', quiet=True)
+        _save_episode(agent, st, episode_reward, avg10, term_reason, total_steps)
 
     env.end()
-    agent.save()
-    print("Training complete.")
+    print('Training complete.')
