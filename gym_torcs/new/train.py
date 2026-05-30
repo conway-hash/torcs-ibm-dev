@@ -400,10 +400,11 @@ if __name__ == '__main__':
     ou_accel = OUNoise(1, mu=0.4,  theta=0.5,  sigma=0.10)
     ou_brake = OUNoise(1, mu=-0.9, theta=1.0,  sigma=0.02)
 
-    accel_floor_raw = 2.0 * ACCEL_FLOOR - 1.0
-    total_steps     = 0
-    episode_rewards = []
-    track_len_est   = 0.0   # metres — grows as agent covers more of the track
+    accel_floor_raw  = 2.0 * ACCEL_FLOOR - 1.0
+    total_steps      = 0
+    episode_rewards  = []
+    TRACK_LENGTH     = 3200.0   # metres default; auto-corrects on first lap completion
+    track_len_locked = False    # True once we measured the actual lap length
 
     for episode in range(MAX_EPISODES):
 
@@ -446,7 +447,8 @@ if __name__ == '__main__':
         step           = 0
         term_reason    = 'max_steps'
         ep_time        = 0.0
-        ep_dist        = 0.0   # distFromStart at end of episode (metres)
+        dist_start     = None   # distFromStart at first step (spawn position)
+        dist_covered   = 0.0   # max metres driven FROM spawn this episode
 
         for step in range(MAX_STEPS):
             if total_steps < WARMUP_STEPS:
@@ -464,7 +466,15 @@ if __name__ == '__main__':
 
             obs, reward, done, _, info = env.step(action)
             next_state = obs_to_state(obs)
-            ep_dist    = info.get('dist_from_start', ep_dist)
+
+            step_dist = info.get('dist_from_start', 0.0)
+            if dist_start is None:
+                dist_start = step_dist
+            # Distance driven = current - start, with lap-wrap handled
+            raw = step_dist - dist_start
+            if raw < -100:          # crossed finish line
+                raw += TRACK_LENGTH
+            dist_covered = max(dist_covered, raw)
 
             buffer.add(state, action, reward, next_state, float(done))
             if total_steps > SEED_STEPS and total_steps % TRAIN_FREQ == 0:
@@ -479,16 +489,16 @@ if __name__ == '__main__':
                 ep_time     = info.get('time', 0.0)
                 break
 
-        # Track length estimate: max distFromStart ever seen.
-        # Improves each run; locks to exact length after first lap completion.
-        if term_reason == 'finished':
-            # On lap completion distFromStart is near 0, so we can't use it directly.
-            # Instead keep the previous best estimate — it was already at track_len.
-            pass
-        else:
-            track_len_est = max(track_len_est, ep_dist)
+        # Lock track length on first lap completion: dist_covered ≈ full lap
+        if term_reason == 'finished' and not track_len_locked:
+            TRACK_LENGTH     = dist_covered
+            track_len_locked = True
+            tl_line = f'  [track] length measured by TORCS sensor: {TRACK_LENGTH:.0f}m'
+            print(tl_line)
+            with open(LOG_FILE, 'a') as f:
+                f.write(tl_line + '\n')
 
-        pct = (ep_dist / track_len_est * 100) if track_len_est > 0 else 0.0
+        pct = dist_covered / TRACK_LENGTH * 100
 
         episode_rewards.append(episode_reward)
         avg10      = float(np.mean(episode_rewards[-10:]))
@@ -501,7 +511,7 @@ if __name__ == '__main__':
                 f'Steps {step+1:5d} | '
                 f'Reward {episode_reward:9.1f} | '
                 f'Avg(10) {avg10:9.1f} | '
-                f'Dist {ep_dist:6.0f}m ({pct:5.1f}%) | '
+                f'Dist {dist_covered:6.0f}m ({pct:5.1f}%) | '
                 f'Buf {buf_pct:5.1f}% | '
                 f'Total {total_steps:7d} | '
                 f'End: {term_reason}')
