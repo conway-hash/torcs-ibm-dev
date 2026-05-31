@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 18 is the strongest run so far: it produced three consecutive finished laps (ep_335-337, rewards 357k/353k/364k, 100% distance) and Avg(10) peaked near 298k around ep_338. It has since drifted down to ~224k as the agent reverts to the recurring 63% off_track plateau, but it's still clearly healthier than all prior branches and the buffer is filling (32% with good experience). This is a normal post-peak oscillation, not a crash loop.
+
+Action:
+No change. Branch 18 recently demonstrated full-lap competence and Avg(10) remains in the 220k+ range, well above earlier branches. I'd rather let it continue exploiting the good experience now in the buffer than reset and clear it. Will reassess next check — if Avg(10) drops below ~150k and stays there, I'd consider reloading ep_000337.18 (the best finished checkpoint).

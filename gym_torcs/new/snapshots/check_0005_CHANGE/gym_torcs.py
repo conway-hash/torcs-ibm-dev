@@ -113,7 +113,7 @@ class TorcsEnv:
 
         if client.so is None:
             self.observation = self.make_observaton(obs_pre)
-            finish_bonus = 5000.0 + (50000.0 / max(self.time_step, 1))
+            finish_bonus = 5000.0 + (120000.0 / max(self.time_step, 1))
             race_time = obs_pre.get('curLapTime', 0.0)
             dist = float(obs_pre.get('distFromStart', 0.0))
             return self.get_obs(), finish_bonus, True, False, {
@@ -126,7 +126,10 @@ class TorcsEnv:
         if obs.get('lastLapTime', 0) > 0:
             lap_time = obs['lastLapTime']
             print(f"### LAP FINISHED in {lap_time:.1f}s ###")
-            finish_bonus = 5000.0 + (50000.0 / max(self.time_step, 1))
+            # Strong time-based finish bonus: faster laps earn far more.
+            # Coefficient raised 80000->120000 to aggressively reward sub-1:30 laps
+            # (fewer steps = much larger bonus).
+            finish_bonus = 5000.0 + (120000.0 / max(self.time_step, 1))
             client.R.d['meta'] = True
             client.respond_to_server()
             return self.get_obs(), finish_bonus, True, False, {
@@ -136,21 +139,45 @@ class TorcsEnv:
         sp       = np.array(obs['speedX'])
         progress = sp * np.cos(obs['angle'])
 
-        # ── Reward: go fast, go forward, don't drift ─────────────────
+        # ── Reward: go FAST, go forward, don't drift ─────────────────
         # No trackPos penalty — the car should use the full track width.
-        # Good racing lines hug the edge; only punish leaving the track entirely.
-        reward = sp * np.cos(obs['angle']) - sp * abs(np.sin(obs['angle']))
+        # Speed term weighted UP to 2.2x to push lap TIME down (operator
+        # wants sub-1:30). The drift penalty (lateral velocity) discourages
+        # sliding/scrubbing speed in corners.
+        reward = 2.2 * sp * np.cos(obs['angle']) - sp * abs(np.sin(obs['angle']))
 
-        # Survival bonus: every on-track step beats crashing early
+        # Speed-proportional on-track bonus (coefficient 0.06) so being fast
+        # AND on track pays the most; flat term kept modest.
         if track.min() > 0:
-            reward += 2.0
+            reward += 0.5 + 0.06 * sp
+
+        # Speed-shortfall penalty: punish cruising below a HIGHER target pace.
+        # sp is normalized (speedX / default_speed=50), so sp≈1.0 ≈ 50 km/h.
+        # Target raised 1.6->1.9 (~95) with stronger coefficient to break the
+        # slow-lap attractor that produced ~3:40+ laps and too_slow stalls.
+        SPEED_TARGET = 1.9
+        if track.min() > 0 and sp > 0.4 and sp < SPEED_TARGET:
+            reward -= (SPEED_TARGET - sp) * 9.0
+
+        # Edge-correction nudge: only when very close to leaving the track.
+        # Targets the recurring off_track failure without penalizing
+        # racing-line use of the full track width.
+        tp = abs(float(obs['trackPos']))
+        if tp > 0.85:
+            reward -= (tp - 0.85) * 20.0
+
+        # Steering-smoothness penalty: punish abrupt steering changes to
+        # reduce wobble/oscillation. Scaled by speed so it matters most at
+        # high speed where wobble causes off_track.
+        steer_delta = abs(float(u[0]) - prev_steer)
+        reward -= steer_delta * (2.0 + 0.05 * sp)
 
         # Discourage near-zero speed (prevents stall attractor)
         if sp < 0.3:
             reward -= 4.0
 
-        # Clip to keep Q-values stable
-        reward = float(np.clip(reward, -50.0, 50.0))
+        # Clip to keep Q-values stable (raised to fit higher speed reward)
+        reward = float(np.clip(reward, -50.0, 85.0))
 
         term_reason = None
 

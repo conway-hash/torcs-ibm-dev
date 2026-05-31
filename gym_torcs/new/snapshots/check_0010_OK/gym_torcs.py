@@ -145,6 +145,20 @@ class TorcsEnv:
         if track.min() > 0:
             reward += 2.0
 
+        # Edge-correction nudge: only when very close to leaving the track,
+        # gently reward steering/being back toward center. This targets the
+        # recurring ~63% off_track failure without penalizing racing-line use.
+        tp = abs(float(obs['trackPos']))
+        if tp > 0.85:
+            reward -= (tp - 0.85) * 20.0
+
+        # Steering-smoothness penalty: punish abrupt steering changes to
+        # reduce wobble/oscillation. Scaled by speed so it matters most at
+        # high speed where wobble causes off_track. Small coefficient so it
+        # does not punish legitimate racing-line corrections.
+        steer_delta = abs(float(u[0]) - prev_steer)
+        reward -= steer_delta * (3.0 + 0.05 * sp)
+
         # Discourage near-zero speed (prevents stall attractor)
         if sp < 0.3:
             reward -= 4.0

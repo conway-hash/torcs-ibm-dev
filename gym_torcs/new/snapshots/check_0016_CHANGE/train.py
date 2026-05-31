@@ -26,7 +26,7 @@ NOISE_CLIP     = 0.20
 POLICY_DELAY   = 2
 WARMUP_STEPS   = 5_000
 SEED_STEPS     = 2_000
-EXPL_NOISE     = 0.15
+EXPL_NOISE     = 0.07
 RELAUNCH_EVERY = 20
 TRAIN_FREQ     = 2
 ACCEL_FLOOR    = 0.15   # TORCS accel min → actor-space: 2*0.15-1 = -0.70
@@ -276,14 +276,6 @@ class TD3:
 
 
 # ── Episode storage helpers ────────────────────────────────────────
-#
-# Naming:  ep_000001        (branch 0 — original run)
-#          ep_002001.1      (branch 1 — after AI jumped to ep_002000)
-#          ep_001501.2      (branch 2 — after AI jumped again)
-#
-# _state.json tracks: next episode number, current branch, last saved path.
-# This survives restarts and ensures no name collisions.
-
 import re as _re
 import shutil as _shutil
 
@@ -295,7 +287,6 @@ def _ep_name(ep_num, branch):
 
 
 def _parse_ep_name(dirname):
-    """Parse 'ep_000350' or 'ep_000350.2' → (ep_num, branch) or None."""
     m = _re.match(r'^ep_(\d{6})(?:\.(\d+))?$', dirname)
     if not m:
         return None
@@ -318,7 +309,6 @@ def _write_state(s):
 
 
 def _save_episode(agent, st, reward, avg10, term_reason, total_steps):
-    """Save weights + metadata. Updates and writes st in-place. Returns saved path."""
     ep_num = st['next_ep']
     branch = st['branch']
     if ep_num % SAVE_EVERY != 0:
@@ -362,7 +352,6 @@ if __name__ == '__main__':
     agent  = TD3(STATE_DIM, ACTION_DIM)
     buffer = PrioritizedReplayBuffer(BUFFER_SIZE)
 
-    # ── Load checkpoint via _state.json ─────────────────────────
     st          = _read_state()
     loaded_from = None
 
@@ -371,7 +360,6 @@ if __name__ == '__main__':
         if os.path.exists(f'{lp}/actor.pth'):
             agent.load(lp)
             loaded_from = lp
-            # If jumping to a different episode than last saved → new branch
             last = st.get('last_dir') or ''
             if os.path.normpath(lp) != os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), last)):
                 st['branch'] += 1
@@ -403,17 +391,15 @@ if __name__ == '__main__':
     accel_floor_raw  = 2.0 * ACCEL_FLOOR - 1.0
     total_steps      = 0
     episode_rewards  = []
-    TRACK_LENGTH     = 3200.0   # metres default; auto-corrects on first lap completion
-    track_len_locked = False    # True once we measured the actual lap length
+    TRACK_LENGTH     = 3200.0
+    track_len_locked = False
 
     for episode in range(MAX_EPISODES):
 
-        # ── Graceful stop ──────────────────────────────────────
         if os.path.exists(STOP_FLAG):
             print('  [auto] stop.flag — saving and exiting')
             break
 
-        # ── Hot-swap: AI picked a different episode mid-run ────
         if os.path.exists(LOAD_FLAG):
             with open(LOAD_FLAG) as _f:
                 _swap_path = _f.read().strip()
@@ -447,8 +433,8 @@ if __name__ == '__main__':
         step           = 0
         term_reason    = 'max_steps'
         ep_time        = 0.0
-        dist_start     = None   # distFromStart at first step (spawn position)
-        dist_covered   = 0.0   # max metres driven FROM spawn this episode
+        dist_start     = None
+        dist_covered   = 0.0
 
         for step in range(MAX_STEPS):
             if total_steps < WARMUP_STEPS:
@@ -470,9 +456,8 @@ if __name__ == '__main__':
             step_dist = info.get('dist_from_start', 0.0)
             if dist_start is None:
                 dist_start = step_dist
-            # Distance driven = current - start, with lap-wrap handled
             raw = step_dist - dist_start
-            if raw < -100:          # crossed finish line
+            if raw < -100:
                 raw += TRACK_LENGTH
             dist_covered = max(dist_covered, raw)
 
@@ -489,7 +474,6 @@ if __name__ == '__main__':
                 ep_time     = info.get('time', 0.0)
                 break
 
-        # Lock track length on first lap completion: dist_covered ≈ full lap
         if term_reason == 'finished' and not track_len_locked:
             TRACK_LENGTH     = dist_covered
             track_len_locked = True

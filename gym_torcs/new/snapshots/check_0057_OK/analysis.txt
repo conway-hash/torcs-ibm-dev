@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 18 (started from ep_000326.17) is the healthiest run yet: it produced three consecutive `finished` laps (ep_335-337.18, ~350-364k reward) and Avg(10) peaked near 298k. The recent dip to ~230k avg is normal exploration variance, with most episodes still reaching 60-65% distance and rewards consistently in the 200-250k range. This is markedly better than every earlier branch, which plateaued around 60% distance with frequent early off-track loops.
+
+Action:
+No change. The current branch achieved actual lap completions and is holding a high Avg(10) well above any earlier checkpoint. The mild recent variance is exploration noise, not a regression or crash loop — switching episodes now would discard a strong, still-improving buffer. Let it continue.

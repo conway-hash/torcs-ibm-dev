@@ -35,9 +35,10 @@ STOP_FLAG     = os.path.join(WORK_DIR, 'stop.flag')
 LOAD_FLAG     = os.path.join(WORK_DIR, 'load.flag')
 EPISODE_DIR   = os.path.join(WORK_DIR, 'models', 'episodes')
 SNAPSHOTS_DIR = os.path.join(WORK_DIR, 'snapshots')   # human-readable check archive
-VENV_PYTHON   = os.path.join(WORK_DIR, 'venv', 'Scripts', 'python.exe')
+VENV_PYTHON    = os.path.join(WORK_DIR, 'venv', 'Scripts', 'python.exe')
+TRIGGER_FILE   = os.path.join(WORK_DIR, 'trigger_review.txt')  # drop this file to force a review
 
-CHECK_MINUTES = 10
+CHECK_MINUTES = 30
 LLM_MODEL     = 'claude-opus-4-8'
 LOG_TAIL      = 400    # recent log lines sent to LLM
 EP_HISTORY    = 60     # last N episode stats shown to LLM
@@ -266,6 +267,20 @@ REVIEW_PROMPT = """\
 Training runs CONTINUOUSLY. Episodes are saved individually so you can pick any one to continue from.
 There is NO automatic rollback — you decide everything.
 
+## Current training goal
+The car has progressed past the first turn and now covers a significant portion of the track.
+The next objectives in priority order are:
+1. **Maximize lap speed** — the car should drive as fast as possible while staying on track
+2. **Minimize wobble** — reduce steering oscillation; the car should hold clean, smooth lines
+3. **Complete full laps** — lap completion is the ultimate goal
+
+What this means for your decisions:
+- A steering-smoothness penalty in the reward function directly targets wobble
+- Reducing EXPL_NOISE reduces noise-induced wobble but may slow exploration — balance carefully
+- The current reward already rewards `speed * cos(angle)` — do not add trackPos penalties
+- Be careful with edge-proximity penalties — a correct racing line legitimately uses the full track width near corners
+- If the car is consistently reaching 60-80%+ of the track, focus on speed/smoothness not survival
+
 ## What you can do
 - **ok**     — training is healthy, do nothing
 - **change** — pick any past episode to continue from (optional) AND/OR change params (optional).
@@ -291,11 +306,13 @@ There is NO automatic rollback — you decide everything.
 ```
 
 ## Decision rules
-- Avg(10) going up → **ok**
+- Avg(10) going up AND track coverage % improving → **ok**
+- Avg(10) up but car is still wobbling heavily (short episodes, many damage/off_track) → **change** add smoothness penalty
 - Avg(10) was better at an earlier episode → **change**, load that episode
-- Policy stuck in a crash loop despite trying different episodes → **change** reward function
+- Policy stuck or regressing → **change** reward function or load a better past episode
 - Be conservative. Change 1–3 things max per review.
 - DO NOT suggest restart_fresh — only the human can do that.
+- Be very careful with trackPos/edge-proximity penalties — a correct racing line goes wide on entry, hits the apex, then goes wide on exit, so being near the edge is often correct and should not be punished.
 - Use EXACT episode name from the table for load_from, e.g. models/episodes/ep_002001.1
 
 Respond with ONLY this XML (omit any tag you don't need):
@@ -371,12 +388,15 @@ def initial_setup():
 
 # ── 10-minute review ───────────────────────────────────────────────────────────
 
-def do_review(check_n, check_min, proc):
+def do_review(check_n, check_min, proc, user_context=''):
     """Returns (decision, needs_restart, load_from_path)."""
     ep_table  = episode_summary_for_llm()
     log_text  = tail_log(LOG_TAIL)
     train_py  = read_file(TRAIN_SCRIPT)
     gym_py    = read_file(GYM_SCRIPT)
+
+    if user_context:
+        print(f'  User context: {user_context}')
 
     prompt = REVIEW_PROMPT.format(
         check_n=check_n,
@@ -387,6 +407,9 @@ def do_review(check_n, check_min, proc):
         train_py=train_py,
         gym_py=gym_py,
     )
+    if user_context:
+        prompt += f'\n\n## Message from the human operator\n{user_context}\nTake this into account in your decision.\n'
+
     text = call_llm(prompt)
 
     decision  = (extract_tag(text, 'decision')  or 'ok').strip().lower()
@@ -502,15 +525,34 @@ def main():
                 # Pass last_path so train.py sees same last_dir → no branch increment
                 proc = launch_proc(load_from=last_path)
 
-            if time.time() >= next_check:
+            # ── Check for manual trigger file ──────────────────────
+            user_context = ''
+            triggered_manually = False
+            if os.path.exists(TRIGGER_FILE):
+                try:
+                    raw = open(TRIGGER_FILE, 'rb').read()
+                    for enc in ('utf-8-sig', 'utf-16', 'utf-8'):
+                        try:
+                            user_context = raw.decode(enc).strip()
+                            break
+                        except (UnicodeDecodeError, ValueError):
+                            user_context = ''
+                    os.remove(TRIGGER_FILE)
+                    triggered_manually = True
+                    print(f'\n  Manual review triggered!')
+                except Exception:
+                    pass
+
+            if triggered_manually or time.time() >= next_check:
+                label = 'MANUAL' if triggered_manually else f'#{check_n}'
                 print(f'\n{"─"*62}')
-                print(f'  REVIEW #{check_n}   {time.strftime("%Y-%m-%d %H:%M:%S")}')
+                print(f'  REVIEW {label}   {time.strftime("%Y-%m-%d %H:%M:%S")}')
                 d, p = last_episode()
                 print(f'  Last saved: {d}')
                 print(f'{"─"*62}')
 
                 try:
-                    decision, needs_restart, load_from = do_review(check_n, check_min, proc)
+                    decision, needs_restart, load_from = do_review(check_n, check_min, proc, user_context)
                     if needs_restart:
                         if load_from is None:
                             _, load_from = last_episode()
@@ -524,9 +566,11 @@ def main():
                     traceback.print_exc()
                     save_snapshot(check_n, label='ERROR')
 
-                check_n   += 1
-                next_check = time.time() + check_min * 60
-                print(f'  Next review: #{check_n} in {check_min} min.\n')
+                check_n += 1
+                if not triggered_manually:
+                    next_check = time.time() + check_min * 60
+                remaining = max(0, (next_check - time.time()) / 60)
+                print(f'  Next scheduled review: #{check_n} in {remaining:.0f} min.\n')
 
             time.sleep(5)
 

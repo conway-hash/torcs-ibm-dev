@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 18 (started from ep_000326.17) is the best branch yet: it produced three consecutive finished laps (ep_335-337, ~360k reward) and has been holding a stable Avg(10) around 220-235k for the last ~30 episodes. The dominant failure is still off_track at ~63% (a recurring corner), but rewards are high and consistent — no crash loop, no collapse.
+
+Action:
+No change. Avg(10) is healthy (~231k) and stable, the policy is completing full laps intermittently, and the buffer is filling normally. Switching episodes or editing the reward now would discard good momentum. Let it keep training so the edge-correction shaping can chip away at the 63% off_track corner.

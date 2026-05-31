@@ -2,7 +2,7 @@ Decision : ok
 Load from: none
 
 Analysis:
-The current branch (.5) was launched from ep_000132.4 and is climbing strongly: Avg(10) went 56k → 121k → 132k → 137k → 134k → 149k → 160k, with multiple ~64% distance laps and rewards of 230k-241k in the last three episodes. This branch is clearly outperforming and trending upward, with the best individual episodes (~240k) and consistent half-to-two-thirds track coverage.
+The current branch (.28) loaded from ep_000689.27 is performing exceptionally well: many "finished" episodes with rewards climbing to 800k+ and full laps at 96.8-100% coverage. Avg(10) peaked around 716k and is now ~525k only because of intermittent "too_slow" episodes (alternating finished/too_slow pattern), not because the policy is degrading. Track coverage on successful runs is excellent and lap times on finishes are clean and consistent.
 
 Action:
-No change. The .5 branch from ep_000132.4 is the best-performing line yet and Avg(10) is still rising (160.7k and climbing). Hot-swapping or altering params now would clear the buffer and interrupt healthy learning momentum. Let it continue.
+No change. The policy is healthy and achieving the primary goals — completing full laps with high speed. The "too_slow" episodes appear to be occasional bad starts/early stalls rather than a policy regression, and the buffer is still filling (66%) so training continues to consolidate the strong behavior. Changing the reward or swapping episodes now would risk disrupting a clearly winning trajectory. Will revisit next check if the too_slow rate increases or finishes start declining.

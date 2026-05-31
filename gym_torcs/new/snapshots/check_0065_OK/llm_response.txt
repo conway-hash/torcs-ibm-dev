@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>Branch 18 is performing excellently — Avg(10) climbed steadily from ~217k to 300,750 over the last 10 episodes, with the latest episode (ep_000399.18) hitting 463,289 and completing a full lap (96.8%). The agent is clearly improving, learning to drive faster and farther, with several finished laps in the branch's history. The recurring off_track terminations remain but are now happening at higher reward/distance points as the car pushes speed.</analysis>
+<action>No change. Avg(10) is on a strong upward trajectory (281k → 300k) and the buffer is healthy at 72%. Interrupting now would clear the buffer and lose momentum on a clearly-learning policy. Let training continue.</action>

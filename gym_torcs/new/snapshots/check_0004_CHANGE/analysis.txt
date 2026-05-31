@@ -1,8 +1,8 @@
 Decision : change
-Load from: none
+Load from: models/episodes/ep_000734.28
 
 Analysis:
-The current branch.1 is healthy and climbing — Avg(10) rose from 34601 (ep_75.1) to 50615 (ep_77.1), with two strong ~119k laps (ep_76.1, ep_77.1) showing the policy is rediscovering the ~40% distance runs. This branch (loaded from ep_000053) is clearly superior to the original branch-0 path which had collapsed to ~13k. No action needed beyond confirming we stay on this trajectory; the buffer is still filling (4.9%) and improvement is ongoing.
+The branch .28 (loaded from ep_000735.28) reached an outstanding state: many consecutive full-lap "finished" episodes (ep 796-824) with rewards 590k-860k and 96.8%+ coverage. The current .30 branch (loaded from ep_000735.28) is replaying the same warmup-then-finish pattern and is healthy, but the strongest checkpoints are the high-reward finishers in branch .28. The big concern: branch .28 later developed a "too_slow" / repeated-damage attractor (ep 819-884 collapsed to ~6k damage loops), so I should branch from a known clean high-speed finisher, not from a degraded point.
 
 Action:
-Training on branch .1 is improving steadily with Avg(10) trending up and producing high-reward full-section laps. Leaving it running — switching now would clear the buffer and discard momentum. No param or reward changes.
+Hot-swap (no param change, no restart) to continue from the best clean high-speed finisher, ep_000734.28 (861k reward, fastest finish at 11572 steps ≈ 3:58 but highest reward overall and a confirmed "finished"). This preserves the strong lap-completion policy while letting fresh training continue. No reward or hyperparameter changes — the reward function is already producing consistent full laps, and altering it now risks destabilizing a working policy. Buffer clears on swap but the policy weights carry the learned racing line.

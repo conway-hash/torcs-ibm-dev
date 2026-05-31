@@ -8,11 +8,12 @@ LOG_FILE        = 'training_log.txt'
 REFRESH_SECONDS = 10
 
 COLOR_MAP = {
-    'off_track': '#e07b00',
-    'too_slow':  '#d62728',
-    'damage':    '#9467bd',
-    'finished':  '#2ca02c',
-    'unknown':   '#aaaaaa',
+    'off_track':  '#e07b00',
+    'too_slow':   '#d62728',
+    'damage':     '#9467bd',
+    'finished':   '#2ca02c',
+    'max_steps':  '#1f77b4',
+    'unknown':    '#aaaaaa',
 }
 
 GRAY = 0.68   # neutral gray level for faded old dots
@@ -40,6 +41,7 @@ def parse_log():
     ep_re = re.compile(
         r'Ep\s+ep_(\d+)(?:\.\d+)?\s*\|'
         r'.*?Time\s+(\d+):(\d+\.\d+)\s*\|'
+        r'.*?Steps\s+(\d+)\s*\|'
         r'.*?Reward\s+([-\d.]+)\s*\|'
         r'.*?Avg\(10\)\s+([-\d.]+)\s*\|'
         r'(?:.*?Dist\s+([\d.]+)m\s*\(\s*([\d.]+)%\)\s*\|)?'
@@ -61,15 +63,17 @@ def parse_log():
         ep_num   = int(m.group(1))
         mins     = int(m.group(2))
         secs     = float(m.group(3))
-        reward   = float(m.group(4))
-        avg10    = float(m.group(5))
-        dist_m   = float(m.group(6)) if m.group(6) else None
-        dist_pct = float(m.group(7)) if m.group(7) else None
-        reason   = m.group(8)
+        steps    = int(m.group(4))
+        reward   = float(m.group(5))
+        avg10    = float(m.group(6))
+        dist_m   = float(m.group(7)) if m.group(7) else None
+        dist_pct = float(m.group(8)) if m.group(8) else None
+        reason   = m.group(9)
 
         episodes.append({
             'ep':       ep_num,
             'time':     mins * 60 + secs,
+            'steps':    steps,
             'reward':   reward,
             'avg10':    avg10,
             'dist_m':   dist_m,
@@ -112,7 +116,7 @@ def draw(episodes, restart_eps, ax1, ax2, ax3):
     sizes     = np.where(is_recent, 30, 14).astype(float)
     alphas    = np.where(is_recent, 0.85, 0.35)
 
-    times   = [d['time']   for d in episodes]
+    steps   = [d['steps']  for d in episodes]
     rewards = [d['reward'] for d in episodes]
     avg10s  = [d['avg10']  for d in episodes]
     eps     = [d['ep']     for d in episodes]
@@ -122,11 +126,11 @@ def draw(episodes, restart_eps, ax1, ax2, ax3):
     leg_patches = [mpatches.Patch(color=COLOR_MAP[k], label=k)
                    for k in COLOR_MAP if k != 'unknown']
 
-    # ── Graph 1: Track time × Reward (fade to gray) ──────────────────
-    _scatter_with_fade(ax1, times, rewards, reasons, is_recent, sizes, alphas)
-    ax1.set_xlabel('Episode track time (seconds)', fontsize=10)
+    # ── Graph 1: Steps × Reward (fade to gray) ──────────────────
+    _scatter_with_fade(ax1, steps, rewards, reasons, is_recent, sizes, alphas)
+    ax1.set_xlabel('Episode steps', fontsize=10)
     ax1.set_ylabel('Reward', fontsize=10)
-    ax1.set_title('Track time  ×  Reward', fontsize=11)
+    ax1.set_title('Steps  ×  Reward', fontsize=11)
     ax1.grid(True, alpha=0.20)
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}k'))
     ax1.legend(handles=leg_patches, fontsize=8, loc='upper left')
@@ -156,7 +160,7 @@ def draw(episodes, restart_eps, ax1, ax2, ax3):
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}k'))
     ax2.legend(fontsize=8, loc='upper left')
 
-    # ── Graph 3: Track time × % of track (fade to gray) ──────────────
+    # ── Graph 3: Steps × % of track (fade to gray) ──────────────
     pct_eps = [(i, d) for i, d in enumerate(episodes) if d['dist_pct'] is not None]
     if pct_eps:
         idxs, pdata = zip(*pct_eps)
@@ -173,9 +177,9 @@ def draw(episodes, restart_eps, ax1, ax2, ax3):
     else:
         ax3.set_title('Track % — no dist data yet')
 
-    ax3.set_xlabel('Episode track time (seconds)', fontsize=10)
+    ax3.set_xlabel('Episode time (s)', fontsize=10)
     ax3.set_ylabel('Track coverage (%)', fontsize=10)
-    ax3.set_title('Track time  ×  % of track covered', fontsize=11)
+    ax3.set_title('Time  ×  % of track covered', fontsize=11)
     ax3.set_ylim(0, 105)
     ax3.grid(True, alpha=0.20)
 

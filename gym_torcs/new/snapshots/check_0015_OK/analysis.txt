@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+The current branch (.20) is showing strong, consistent improvement: Avg(10) has climbed from ~350k to 406914, and the last 6 episodes include 5 full-track finishes (96.8% completion) plus one off_track. Track coverage is now routinely hitting 73-97%, with finishes becoming the dominant termination reason in the most recent window. The reward function changes (steering-smoothness penalty + gentle edge nudge) are clearly working — the car is completing laps repeatedly and Avg(10) is at its all-time high.
+
+Action:
+No change. Both Avg(10) and track coverage are trending up with multiple recent lap completions. Per the decision rules (Avg up AND coverage improving → ok), I'm letting this healthy run continue to accumulate more finish experiences and refine speed/smoothness. Intervening now would risk disrupting a clearly successful trajectory.

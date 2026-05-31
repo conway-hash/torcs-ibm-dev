@@ -2,7 +2,7 @@ Decision : ok
 Load from: none
 
 Analysis:
-Avg(10) climbed dramatically from ~7k to a peak of ~72k around ep_000053, then settled to a healthy ~44-49k plateau. The reward total is high mostly because of survival/speed accumulation, but the key signal — distance covered — shows real progress: several episodes (44, 45, 49, 59) reached ~39-40% of the track (1200m+), proving the policy is genuinely learning to drive far. Buffer is still only 9% full, so learning has plenty of headroom.
+The current branch (.18) is the strongest run yet: avg(10) climbed to ~330k, with frequent full-lap completions (ep 432, 436, 438, 439, 446, 447 all finished) and finish rewards now reaching 460-470k — meaning the car is completing laps faster than before. Coverage is consistently 60-65%+ on non-finishing episodes, and the dominant non-finish reasons are off_track and too_slow rather than early damage/wobble crashes, indicating clean lines are being held over long distances. Episode step counts on finishes (8000-9450) versus earlier finishes (~7300) confirm the agent is exploring faster/longer laps.
 
 Action:
-No change. Although avg10 dipped from its ep_53 peak, this is normal exploration variance, not a collapse — the policy is still regularly producing long, high-distance runs (e.g. ep_059 at 1274m). Reverting now would discard a more capable, broadly-trained network and clear the buffer for no gain. Let training continue to fill the buffer and consolidate the long-run behaviour.
+No change. The policy is healthy and improving on exactly the priority objectives — lap speed (rising finish rewards), smoothness (long survival, few damage terminations), and lap completion (multiple finishes in last 20 episodes). Avg(10) dipped only briefly after the restart warmup and recovered. Introducing a smoothness penalty or edge nudge now risks destabilizing a converging high-performer. Let it continue training.

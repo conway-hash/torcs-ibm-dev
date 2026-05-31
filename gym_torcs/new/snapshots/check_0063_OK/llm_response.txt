@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>Branch 18 is the strongest branch seen: it produced three consecutive finished laps (ep_335-337) and Avg(10) climbed to ~298k, far above any earlier branch. Although the last ~50 episodes drifted down to mostly 63% off_track failures, the most recent 3 episodes (ep_387-389) are trending back up (286-289k each, Avg10 now 250k and rising).</analysis>
+<action>No change. Avg(10) is rising again over the last few episodes (242k → 250k) and this branch has the best demonstrated performance with real lap completions. Switching now would discard a healthy buffer (60%) and the best policy lineage. Let it continue and re-evaluate next check.</action>

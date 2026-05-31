@@ -113,7 +113,7 @@ class TorcsEnv:
 
         if client.so is None:
             self.observation = self.make_observaton(obs_pre)
-            finish_bonus = 5000.0 + (50000.0 / max(self.time_step, 1))
+            finish_bonus = 500000.0 + (200000000.0 / max(self.time_step, 1))
             race_time = obs_pre.get('curLapTime', 0.0)
             dist = float(obs_pre.get('distFromStart', 0.0))
             return self.get_obs(), finish_bonus, True, False, {
@@ -126,62 +126,70 @@ class TorcsEnv:
         if obs.get('lastLapTime', 0) > 0:
             lap_time = obs['lastLapTime']
             print(f"### LAP FINISHED in {lap_time:.1f}s ###")
-            finish_bonus = 5000.0 + (50000.0 / max(self.time_step, 1))
+            finish_bonus = 500000.0 + (200000000.0 / max(self.time_step, 1))
             client.R.d['meta'] = True
             client.respond_to_server()
             return self.get_obs(), finish_bonus, True, False, {
                 'term_reason': 'finished', 'time': lap_time, 'dist_from_start': dist}
 
         track    = np.array(obs['track'])
-        sp       = np.array(obs['speedX'])
+        sp       = np.array(obs['speedX'])          # normalized: real_kmh / 50
+        sp_raw   = sp * self.default_speed           # actual km/h ~0-250
         progress = sp * np.cos(obs['angle'])
 
-        # ── Reward: go fast, go forward, don't drift ─────────────────
-        # No trackPos penalty — the car should use the full track width.
-        # Good racing lines hug the edge; only punish leaving the track entirely.
-        reward = sp * np.cos(obs['angle']) - sp * abs(np.sin(obs['angle']))
+        # Core: forward speed in raw km/h dominates all other terms
+        reward = sp_raw * np.cos(obs['angle'])
 
-        # Survival bonus: every on-track step beats crashing early
+        # Per-step time penalty: car must average >60 km/h forward just to
+        # break even. At 150 km/h earns +90/step net. At 50 km/h loses -10/step.
+        reward -= 60.0
+
+        # Heading penalty scaled by raw speed
+        reward -= sp_raw * abs(np.sin(obs['angle'])) * 1.5
+
+        # On-track bonus scales with speed
         if track.min() > 0:
-            reward += 2.0
+            reward += sp_raw * 0.03
 
-        # Edge-correction nudge: only when very close to leaving the track,
-        # gently reward steering/being back toward center. This targets the
-        # recurring ~63% off_track failure without penalizing racing-line use.
+        # Edge penalty only when very close to leaving
         tp = abs(float(obs['trackPos']))
         if tp > 0.85:
-            reward -= (tp - 0.85) * 20.0
+            reward -= (tp - 0.85) * 30.0
 
-        # Discourage near-zero speed (prevents stall attractor)
-        if sp < 0.3:
-            reward -= 4.0
+        # Stall penalty
+        if sp_raw < 15.0:
+            reward -= 20.0
 
-        # Clip to keep Q-values stable
-        reward = float(np.clip(reward, -50.0, 50.0))
+        # Steering smoothness
+        steer_delta = abs(float(u[0]) - prev_steer)
+        reward -= steer_delta * 3.0
+
+        # Wider clip for raw km/h scale
+        reward = float(np.clip(reward, -200.0, 200.0))
 
         term_reason = None
 
         if obs['damage'] - obs_pre['damage'] > 0:
-            reward -= 40
+            reward -= 500
             client.R.d['meta'] = True
             term_reason = 'damage'
 
         episode_terminate = False
         if track.min() < 0:
-            reward -= 60
+            reward -= 800
             episode_terminate = True
             client.R.d['meta'] = True
             term_reason = 'off_track'
 
         if self.terminal_judge_start < self.time_step:
             if progress < self.termination_limit_progress:
-                reward -= 40
+                reward -= 500
                 episode_terminate = True
                 client.R.d['meta'] = True
                 term_reason = 'too_slow'
 
         if np.cos(obs['angle']) < 0:
-            reward -= 60
+            reward -= 800
             episode_terminate = True
             client.R.d['meta'] = True
             term_reason = 'backwards'

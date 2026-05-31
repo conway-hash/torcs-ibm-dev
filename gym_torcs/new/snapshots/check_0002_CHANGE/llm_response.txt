@@ -1,0 +1,4 @@
+<decision>change</decision>
+<analysis>The branch .28 reached an excellent state: from ep_000796 onward it completes the full lap repeatedly (many "finished", 96.8-100% coverage) with rewards 575k-711k. However the last 5 episodes (819-823) are all "damage" at the start line (10m, ~7k reward) — the live policy has regressed/destabilized, likely a bad recent state or a stuck spawn-damage loop. The strongest, most consistent finishing checkpoint is ep_000818.28 (Avg10 534k, finished, 96.8%).</analysis>
+<action>Hot-swap (no param change) to load the proven finishing checkpoint ep_000818.28 to escape the current damage loop and resume from a clean, lap-completing policy. No reward/param changes — the reward shaping is working (consistent full laps) and I want to preserve that behavior rather than risk a restart.</action>
+<load_from>models/episodes/ep_000818.28</load_from>

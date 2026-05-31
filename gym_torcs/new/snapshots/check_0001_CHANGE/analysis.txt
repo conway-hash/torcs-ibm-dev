@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000665.21
+
+Analysis:
+The branch .22 (loaded from ep_000665.21) is catastrophically broken — the car forgot how to drive, stuck at 8% track coverage. But ep_000665.21 itself was excellent: 472800 reward, 96.8% finished, with a strong run of finishes (661-665) at avg10=415269. The "cozy/not speeding" problem is real: finishing laps take ~2:55-3:20, far above the 1:30 target. The reward currently has no explicit speed-maximization term beyond raw speed*cos, and the survival bonus (+2/step) actually rewards slow plodding.
+
+Action:
+First, revert the broken .22 branch by loading the best episode ep_000665.21 (the peak finisher). Second, retune the reward to push for SPEED: increased the speed reward weight, removed the per-step survival bonus that incentivizes slow plodding (replaced with a small time-pressure that scales reward with speed), and reduced EXPL_NOISE from 0.10 to 0.07 to cut noise-induced wobble now that the policy is competent. Kept the steering-smoothness penalty but slightly reduced its base so it doesn't suppress legitimate fast racing-line corrections. Did NOT add trackPos penalties beyond the existing gentle edge nudge.

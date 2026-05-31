@@ -1,8 +1,8 @@
 Decision : change
-Load from: models/episodes/ep_000053
+Load from: models/episodes/ep_000735.28
 
 Analysis:
-Avg(10) has collapsed monotonically from a peak of ~72369 around ep_000053 down to ~13700 at ep_000108 — a clear and sustained degradation. The policy is forgetting how to drive: nearly every recent episode terminates off_track at only 10m (0.3%) distance, whereas earlier branches occasionally completed ~1300m (40%). The agent is stuck in a near-immediate off-track crash loop and the running average shows no sign of recovery.
+The ai-swap to ep_000818.28 (branch 29) was catastrophic: after one weak episode the policy collapsed into a persistent "damage" attractor — 60 consecutive ~170-step episodes covering only 10m. The strongest, most consistent policy was branch 28 around ep_000731–736, which delivered repeated full-lap finishes at ~3:40–3:58 (avg(10) peaked ~716k). The operator wants sub-1:30 laps, which means rewarding speed/distance-per-step far more aggressively than completion alone.
 
 Action:
-Reverting to ep_000053, which sits at the peak avg10 (~72369) and corresponds to the cluster of strong runs (ep_044/045/049/059 all reached ~40% track distance). Hot-swapping (episode only, no param change) to branch from the best-performing checkpoint and rebuild the buffer fresh from good experience rather than continuing to descend.
+Reverting from the broken branch-29 policy back to a proven full-lap finisher, ep_000735.28 (finished, 818k reward, clean). Also retuning the reward to push lap TIME down: raised SPEED_TARGET and its penalty, boosted the speed term, increased the finish bonus's time-sensitivity so faster laps pay dramatically more, and kept the damage/off-track guards. No trackPos racing-line penalties added beyond the existing gentle >0.85 edge nudge.

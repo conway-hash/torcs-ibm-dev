@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000689.27
+
+Analysis:
+Branch .27 (loaded from ep_000665.21) is the strongest line yet — multiple full laps (3100m, 100%), avg(10) climbing past 440k, and finished episodes are common. The car clearly CAN drive fast and complete laps. The human's complaint about slowness is valid: the reward still pays survival/on-track bonuses generously enough that a "cozy" pace is competitive, and the finish bonus (80000/time_step) actually penalizes nothing for being slow during the lap. To push pace without destabilizing the good .27 policy, I'll continue from the best recent finisher and increase the speed-term weighting plus add a small speed-shortfall penalty, leaving smoothness/edge logic intact.
+
+Action:
+Hot-swap to ep_000689.27 (a clean finished lap, avg10 ~417k, the peak of the current branch) and restart with a stronger speed incentive: bumped the cos-aligned speed term from 1.5x to 1.9x, raised the on-track speed bonus coefficient (0.04→0.06), and added a mild penalty for cruising below a speed target so the agent is pushed off the slow attractor. Reward clip raised to accommodate the higher speed reward. Edge/smoothness penalties unchanged to preserve clean lines.

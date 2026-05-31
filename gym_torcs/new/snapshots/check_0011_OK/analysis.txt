@@ -2,7 +2,7 @@ Decision : ok
 Load from: none
 
 Analysis:
-The current branch (.4, loaded from ep_000091.3) is the strongest run yet. Avg(10) climbed steadily from ~5k at swap to 182,955 at ep_000125.4, with consistent 200k+ reward episodes reaching 64-67% track distance. The damage crash-loop that plagued earlier branches has cleared, and termination is now almost entirely off_track at high distances — a sign the policy is learning to drive fast and far.
+The current branch (.28), loaded from ep_000689.27, is performing exceptionally well — the last 5 episodes are all "finished" with rising rewards (636k → 676k → 690k → 744k → 797k) and consistent ~96.8-100% track coverage. Lap times are also climbing in reward terms, indicating the car is completing full laps and the speed-weighted reward is rewarding faster laps. This is the best, cleanest run seen across all branches.
 
 Action:
-No change. Avg(10) is rising and at an all-time high, with the buffer still filling (21%) and clear upward momentum. Intervening now would risk disrupting a healthy, improving policy. Let it continue accumulating experience.
+No change. The .28 branch is in a strong, healthy upward trajectory with repeated full-lap completions and increasing reward, exactly matching the "Avg(10) up AND coverage improving" ok criterion. The buffer is still refilling (14.6%) so the policy is just now hitting full training stride — interrupting now would discard a very promising trend. Let it continue to consolidate full-lap consistency before considering further smoothness/speed tuning.

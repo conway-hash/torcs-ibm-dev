@@ -1,0 +1,8 @@
+Decision : change
+Load from: models/episodes/ep_000665.21
+
+Analysis:
+The branch .21 hit a clear peak around ep_000661–665, with five consecutive finished laps and Avg(10) climbing to 415269 (best in the whole log). Immediately after, the policy collapsed catastrophically (ep_000666 onward: all off_track at ~8% distance, rewards crashing to ~90k). This is a classic post-peak destabilization — the optimizer has walked the policy off a cliff. The earlier checkpoint ep_000665.21 is the strongest model available and should be restored.
+
+Action:
+Hot-swapping to the peak checkpoint ep_000665.21 (5 finished laps, highest Avg10). This is a pure episode swap with no parameter change, so training continues on a fresh branch from the best-performing weights without restart. No reward/param edits — the reward shaping is clearly working (the model learned to complete laps); the collapse was instability, not a reward problem.

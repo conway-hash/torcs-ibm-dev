@@ -1,0 +1,3 @@
+<decision>ok</decision>
+<analysis>Branch 18 (started from ep_000326.17) is the strongest run so far: it produced three consecutive "finished" laps (ep_335-337.18 at ~355-364k reward) and the avg10 peaked at ~298k around ep_338.18 — the best in the entire history. The recent dip to ~204k avg10 (ep_339-348) is normal post-peak variance with several full-track 64-90% runs still occurring; the policy is clearly capable of completing the lap.</analysis>
+<action>No change. Branch 18 is on the best trajectory we've seen (multiple finishes, record avg10). The recent decline is mild exploration noise, not a crash loop, and the buffer is healthily filling (21%). Switching now would discard a promising learning branch and clear the buffer. Let it continue.</action>

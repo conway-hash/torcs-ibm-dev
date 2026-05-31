@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 18 is the strongest run yet — Avg(10) climbed from ~70k to a sustained ~220-235k, with multiple "finished" laps (ep_335-337) and consistent 56-64% distance coverage. The current Avg(10) of ~223k is stable and healthy, far above any earlier branch. The dominant failure is still off_track at ~63% of the track, but the policy is clearly competent and improving, not crash-looping.
+
+Action:
+No change. Branch 18 is the best-performing branch in the entire history and Avg(10) is holding near its peak. Switching episodes or altering the reward now would discard a well-trained, lap-completing policy. Let training continue to consolidate; the recurring 63% off-track corner should be addressed only if Avg(10) stalls or declines over the next several checks.

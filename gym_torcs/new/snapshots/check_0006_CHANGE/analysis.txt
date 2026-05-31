@@ -1,8 +1,8 @@
 Decision : change
-Load from: models/episodes/ep_000085.2
+Load from: models/episodes/ep_000665.21
 
 Analysis:
-The branch-2 run peaked early — ep_000085.2 hit 200116 reward (64% track), but the policy is now degrading and oscillating between strong laps (~140-170k) and damage-induced collapses (~4k). Avg(10) on branch 2 fell from a peak of 140177 down to 48699, a clear downtrend. The damage terminations are recurring, suggesting the recent training has destabilized the policy that performed well around ep_000085.2.
+The branch 21 episode ep_000665.21 was a strong checkpoint (frequent finishes, avg10 ~415k, consistent 89-97% coverage). After that, branch 26 (current, loaded from ep_000665.26 — same base) is stuck cycling between off_track at ~11% and occasional good runs, with avg10 collapsed to ~144k. Multiple recent hot-swaps and a damaging restart cycle have churned the buffer repeatedly, and the agent keeps failing early off-track. The best demonstrated policy was clearly ep_000665.21, which was finishing laps regularly before degradation set in.
 
 Action:
-Hot-swapping back to ep_000085.2 (the best-performing checkpoint at 200116 reward / 64% track distance) to recover the strong policy before the damage-loop degradation. No param changes — keeping the swap clean so train.py doesn't restart and we can re-explore from the best branch point.
+Hot-swapping back to the best known checkpoint ep_000665.21, which was reliably finishing laps (96.8% coverage, avg10 ~415k) before the regression. No parameter changes — the reward function and EXPL_NOISE are already well-tuned, and the issue is buffer churn / drift away from a good policy rather than a reward problem. Letting it continue from this strong branch with a fresh buffer should re-stabilize toward lap completion.

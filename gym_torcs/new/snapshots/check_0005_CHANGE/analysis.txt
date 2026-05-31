@@ -1,8 +1,8 @@
 Decision : change
-Load from: models/episodes/ep_000083.1
+Load from: models/episodes/ep_000800.28
 
 Analysis:
-The branch-1 run peaked spectacularly around ep_000079.1–ep_000084.1 (Avg(10) >120k, distances 1500–1830m, ~50-57% of track), but has since collapsed to ~30k with recurring early 'damage' terminations (ep_85/89/91/93). The policy degraded after its peak — likely overfitting/instability after the high-reward window. The best stable model is ep_000083.1 (149k reward, 54.6% distance), right before the collapse began.
+The car finishes laps consistently but at ~2:40-3:50 (8000-11000 steps), far from the 1:30 target. Critically, the finish bonus `120000/time_step` REWARDS slow laps less but the per-step on-track reward accumulates over MORE steps, so a 3:51 lap (ep_000734.28, 11572 steps, 861k reward) earns MORE total reward than a 2:45 lap (ep_000800.28, 7927 steps, 593k). This directly inverts the operator's goal — surviving longer pays more than going faster. The reward function must penalize step count / time so fewer steps to cover distance wins.
 
 Action:
-Hot-swap to ep_000083.1, the strongest stable checkpoint just before the damage-loop collapse. This is an episode-only swap (no param change), so the buffer clears and training continues on a fresh branch from a proven-good policy. No reward change needed — the reward function is producing genuinely good long runs, the recent regression is a training-instability artifact best fixed by resuming from the peak.
+Rewrote the reward so TIME is the dominant signal: (1) added a per-step time penalty (-3.0 each step) so every step alive costs reward — only forward progress justifies it, killing the "slow lap = more accumulated reward" exploit; (2) raised the finish bonus time coefficient and made it scale steeply with lap time so a sub-1:30 lap dwarfs a 3:00 lap; (3) increased speed reward weight and raised SPEED_TARGET to push pace harder. Loaded the fastest finishing branch (ep_000800.28, 2:45) to continue from a fast policy rather than a slow-but-long one.

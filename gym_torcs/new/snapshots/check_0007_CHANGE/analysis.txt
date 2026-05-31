@@ -1,8 +1,8 @@
 Decision : change
-Load from: models/episodes/ep_000091.3
+Load from: models/episodes/ep_000447.18
 
 Analysis:
-Branch .3 started from a strong checkpoint (ep_085.2, which hit 200k reward) and even produced ep_091.3 at 290890 reward / 75% distance — the best run yet. But the policy then collapsed into a damage crash-loop: the last 7 episodes are all ~2500-5000 reward terminating on 'damage'. This is the classic catastrophic-forgetting pattern after a peak, where the critic chases high-speed Q-values and the actor over-commits to throttle, crashing into walls. The avg10 has crashed from 106k to 9.6k.
+The current branch.19 (loaded from ep_000457.18) has plateaued: episodes consistently reach ~63-69% of track and terminate off_track, with no finishes in the last ~70 episodes. By contrast, branch.18 was actually producing regular full-lap finishes (ep_432, 436, 438, 439, 446, 447, 457 all 96.8-100%), with avg(10) peaking around 320k. The current branch is a clear regression — it lost the lap-completion capability that branch.18 had. The car is stuck oscillating off-track around the 63% mark.
 
 Action:
-Loading the best demonstrated checkpoint ep_000091.3 (290890 reward, 75% track) to branch off from peak performance, rather than continuing the damage-loop collapse. Buffer clears on swap, giving a fresh start from the strongest policy. No param change yet — first verify the swap recovers performance before touching reward shaping.
+Loading ep_000457.18 — the strongest finisher from branch.18 (449702 reward, completed full lap) — but this is exactly where the current branch already started, so instead I'll load ep_000447.18 which was a clean finish AND precedes the off_track collapse that began around ep_460+. I'll also slightly reduce EXPL_NOISE from 0.10 to 0.07 to cut noise-induced wobble that's pushing the car off track near 63%, since the policy already knows how to finish and over-exploration is now hurting it.

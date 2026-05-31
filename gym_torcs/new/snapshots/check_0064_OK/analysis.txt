@@ -1,0 +1,8 @@
+Decision : ok
+Load from: none
+
+Analysis:
+Branch 18 is the strongest run yet — it produced three consecutive finished laps (ep_335-337, ~360k reward) and the Avg(10) has climbed steadily from ~200k back up to 274k over the last 20 episodes. Although most recent episodes terminate as off_track around 50-63% distance, rewards are high and trending up (ep_394 at 290k), indicating the policy is fast and competent but slightly aggressive near track limits.
+
+Action:
+No change. Avg(10) is rising (264k→272k→274k) and this branch achieved full laps. Switching episodes or altering the reward now would discard a clearly improving, capable policy and clear the buffer (already 65% full). Let it continue to consolidate the lap-completion behaviour.

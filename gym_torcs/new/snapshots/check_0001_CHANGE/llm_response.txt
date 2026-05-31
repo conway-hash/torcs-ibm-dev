@@ -1,0 +1,813 @@
+<decision>change</decision>
+<analysis>The branch .22 (loaded from ep_000665.21) is catastrophically broken — the car forgot how to drive, stuck at 8% track coverage. But ep_000665.21 itself was excellent: 472800 reward, 96.8% finished, with a strong run of finishes (661-665) at avg10=415269. The "cozy/not speeding" problem is real: finishing laps take ~2:55-3:20, far above the 1:30 target. The reward currently has no explicit speed-maximization term beyond raw speed*cos, and the survival bonus (+2/step) actually rewards slow plodding.</analysis>
+<action>First, revert the broken .22 branch by loading the best episode ep_000665.21 (the peak finisher). Second, retune the reward to push for SPEED: increased the speed reward weight, removed the per-step survival bonus that incentivizes slow plodding (replaced with a small time-pressure that scales reward with speed), and reduced EXPL_NOISE from 0.10 to 0.07 to cut noise-induced wobble now that the policy is competent. Kept the steering-smoothness penalty but slightly reduced its base so it doesn't suppress legitimate fast racing-line corrections. Did NOT add trackPos penalties beyond the existing gentle edge nudge.</action>
+<load_from>models/episodes/ep_000665.21</load_from>
+<train_py>import argparse
+import sys
+import json
+import numpy as np
+import torch
+import torch.nn as nn
+import random
+import os
+import time as _time
+
+from gym_torcs import TorcsEnv
+
+# ── Hyperparameters ────────────────────────────────────────────────
+STATE_DIM      = 29
+ACTION_DIM     = 3
+MAX_EPISODES   = 100_000
+MAX_STEPS      = 10_000
+BATCH_SIZE     = 256
+BUFFER_SIZE    = 500_000
+GAMMA          = 0.99
+TAU            = 0.005
+ACTOR_LR       = 2e-5
+CRITIC_LR      = 2e-5
+POLICY_NOISE   = 0.10
+NOISE_CLIP     = 0.20
+POLICY_DELAY   = 2
+WARMUP_STEPS   = 5_000
+SEED_STEPS     = 2_000
+EXPL_NOISE     = 0.07
+RELAUNCH_EVERY = 20
+TRAIN_FREQ     = 2
+ACCEL_FLOOR    = 0.15   # TORCS accel min → actor-space: 2*0.15-1 = -0.70
+
+# Episode model storage
+EPISODE_DIR    = 'models/episodes'
+SAVE_EVERY     = 1          # save every N episodes (1 = every episode)
+KEEP_LAST_N    = 0          # 0 = keep all; N > 0 = delete oldest beyond N
+
+# Control flags written by auto_train.py
+LOG_FILE       = 'training_log.txt'
+STOP_FLAG      = 'stop.flag'
+LOAD_FLAG      = 'load.flag'   # auto_train writes episode path here to hot-swap model
+
+# Prioritized Experience Replay
+PER_ALPHA          = 0.6
+PER_BETA_START     = 0.4
+PER_BETA_INCREMENT = 0.0001
+
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+# ── Noise ──────────────────────────────────────────────────────────
+class OUNoise:
+    def __init__(self, action_dim, mu=0.0, theta=0.15, sigma=0.2):
+        self.mu    = mu * np.ones(action_dim)
+        self.theta = theta
+        self.sigma = sigma
+        self.state = self.mu.copy()
+
+    def reset(self):
+        self.state = self.mu.copy()
+
+    def sample(self):
+        dx = self.theta * (self.mu - self.state) + self.sigma * np.random.randn(len(self.state))
+        self.state += dx
+        return self.state
+
+
+def obs_to_state(obs):
+    return np.hstack([
+        np.atleast_1d(obs.track),
+        np.atleast_1d(obs.speedX),
+        np.atleast_1d(obs.speedY),
+        np.atleast_1d(obs.speedZ),
+        np.atleast_1d(obs.angle),
+        np.atleast_1d(obs.trackPos),
+        np.atleast_1d(obs.rpm) / 10000.0,
+        np.atleast_1d(obs.wheelSpinVel) / 100.0,
+    ]).astype(np.float32)
+
+
+# ── Prioritized Replay Buffer ──────────────────────────────────────
+class SumTree:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1, dtype=np.float64)
+        self.data = [None] * capacity
+        self.size = 0
+        self.ptr  = 0
+
+    def _propagate(self, idx, delta):
+        while idx != 0:
+            idx = (idx - 1) // 2
+            self.tree[idx] += delta
+
+    def _retrieve(self, idx, s):
+        while True:
+            left, right = 2 * idx + 1, 2 * idx + 2
+            if left >= len(self.tree):
+                return idx
+            if s <= self.tree[left]:
+                idx = left
+            else:
+                s -= self.tree[left]
+                idx = right
+
+    def total(self):  return self.tree[0]
+
+    def add(self, priority, data):
+        idx = self.ptr + self.capacity - 1
+        self.data[self.ptr] = data
+        self.update(idx, priority)
+        self.ptr  = (self.ptr + 1) % self.capacity
+        self.size = min(self.size + 1, self.capacity)
+
+    def update(self, idx, priority):
+        self._propagate(idx, priority - self.tree[idx])
+        self.tree[idx] = priority
+
+    def get(self, s):
+        s   = max(0.0, min(s, self.total() - 1e-8))
+        idx = self._retrieve(0, s)
+        return idx, self.tree[idx], self.data[idx - self.capacity + 1]
+
+    def clear(self):
+        self.tree[:] = 0.0
+        self.data = [None] * self.capacity
+        self.size = 0
+        self.ptr  = 0
+
+
+class PrioritizedReplayBuffer:
+    def __init__(self, max_size):
+        self.tree         = SumTree(max_size)
+        self.max_size     = max_size
+        self.beta         = PER_BETA_START
+        self.max_priority = 1.0
+        self.epsilon      = 1e-6
+
+    def add(self, state, action, reward, next_state, done):
+        self.tree.add(self.max_priority, (state, action, reward, next_state, done))
+
+    def sample(self, batch_size):
+        batch, idxs, priorities = [], [], []
+        segment = self.tree.total() / batch_size
+        self.beta = min(1.0, self.beta + PER_BETA_INCREMENT)
+        for i in range(batch_size):
+            s = random.uniform(segment * i, segment * (i + 1))
+            idx, priority, data = self.tree.get(s)
+            batch.append(data)
+            idxs.append(idx)
+            priorities.append(max(priority, self.epsilon))
+        probs   = np.array(priorities) / self.tree.total()
+        weights = (self.tree.size * probs) ** (-self.beta)
+        weights /= weights.max()
+        s, a, r, s2, d = zip(*batch)
+        return (
+            torch.FloatTensor(np.array(s)).to(DEVICE),
+            torch.FloatTensor(np.array(a)).to(DEVICE),
+            torch.FloatTensor(np.array(r)).unsqueeze(1).to(DEVICE),
+            torch.FloatTensor(np.array(s2)).to(DEVICE),
+            torch.FloatTensor(np.array(d)).unsqueeze(1).to(DEVICE),
+            idxs,
+            torch.FloatTensor(weights).unsqueeze(1).to(DEVICE),
+        )
+
+    def update_priorities(self, idxs, td_errors):
+        for idx, td_error in zip(idxs, td_errors):
+            priority = (float(abs(td_error)) + self.epsilon) ** PER_ALPHA
+            self.tree.update(idx, priority)
+            self.max_priority = max(self.max_priority, priority)
+
+    def clear(self):
+        self.tree.clear()
+        self.max_priority = 1.0
+        self.beta = PER_BETA_START
+
+    def __len__(self):
+        return self.tree.size
+
+
+# ── Networks ───────────────────────────────────────────────────────
+class Actor(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, 400), nn.ReLU(),
+            nn.Linear(400, 300),       nn.ReLU(),
+            nn.Linear(300, action_dim), nn.Tanh(),
+        )
+    def forward(self, state):
+        return self.net(state)
+
+
+class Critic(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super().__init__()
+        self.q1 = nn.Sequential(
+            nn.Linear(state_dim + action_dim, 400), nn.ReLU(),
+            nn.Linear(400, 300),                    nn.ReLU(),
+            nn.Linear(300, 1),
+        )
+        self.q2 = nn.Sequential(
+            nn.Linear(state_dim + action_dim, 400), nn.ReLU(),
+            nn.Linear(400, 300),                    nn.ReLU(),
+            nn.Linear(300, 1),
+        )
+    def forward(self, state, action):
+        sa = torch.cat([state, action], dim=1)
+        return self.q1(sa), self.q2(sa)
+    def q1_only(self, state, action):
+        sa = torch.cat([state, action], dim=1)
+        return self.q1(sa)
+
+
+# ── TD3 Agent ──────────────────────────────────────────────────────
+class TD3:
+    def __init__(self, state_dim, action_dim):
+        self.actor        = Actor(state_dim, action_dim).to(DEVICE)
+        self.actor_target = Actor(state_dim, action_dim).to(DEVICE)
+        self.actor_target.load_state_dict(self.actor.state_dict())
+        self.actor_opt    = torch.optim.Adam(self.actor.parameters(), lr=ACTOR_LR)
+
+        self.critic        = Critic(state_dim, action_dim).to(DEVICE)
+        self.critic_target = Critic(state_dim, action_dim).to(DEVICE)
+        self.critic_target.load_state_dict(self.critic.state_dict())
+        self.critic_opt    = torch.optim.Adam(self.critic.parameters(), lr=CRITIC_LR)
+
+        self.total_it = 0
+
+    def select_action(self, state):
+        s = torch.FloatTensor(state).unsqueeze(0).to(DEVICE)
+        return self.actor(s).detach().cpu().numpy()[0]
+
+    def train_step(self, replay_buffer):
+        if len(replay_buffer) < BATCH_SIZE:
+            return
+        self.total_it += 1
+        s, a, r, s2, d, idxs, weights = replay_buffer.sample(BATCH_SIZE)
+        with torch.no_grad():
+            noise  = (torch.randn_like(a) * POLICY_NOISE).clamp(-NOISE_CLIP, NOISE_CLIP)
+            next_a = (self.actor_target(s2) + noise).clamp(-1, 1)
+            q1_t, q2_t = self.critic_target(s2, next_a)
+            q_target = r + GAMMA * (1 - d) * torch.min(q1_t, q2_t)
+        q1, q2 = self.critic(s, a)
+        td_errors = (q1.detach() - q_target).abs().cpu().numpy().flatten()
+        replay_buffer.update_priorities(idxs, td_errors)
+        critic_loss = (weights * (q1 - q_target).pow(2)).mean() + \
+                      (weights * (q2 - q_target).pow(2)).mean()
+        self.critic_opt.zero_grad()
+        critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+        self.critic_opt.step()
+        if self.total_it % POLICY_DELAY == 0:
+            actor_loss = -self.critic.q1_only(s, self.actor(s)).mean()
+            self.actor_opt.zero_grad()
+            actor_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=0.5)
+            self.actor_opt.step()
+            for p, tp in zip(self.actor.parameters(), self.actor_target.parameters()):
+                tp.data.copy_(TAU * p.data + (1 - TAU) * tp.data)
+            for p, tp in zip(self.critic.parameters(), self.critic_target.parameters()):
+                tp.data.copy_(TAU * p.data + (1 - TAU) * tp.data)
+
+    def save(self, path):
+        os.makedirs(path, exist_ok=True)
+        torch.save(self.actor.state_dict(),  f'{path}/actor.pth')
+        torch.save(self.critic.state_dict(), f'{path}/critic.pth')
+
+    def load(self, path):
+        self.actor.load_state_dict(torch.load(f'{path}/actor.pth',  map_location=DEVICE))
+        self.critic.load_state_dict(torch.load(f'{path}/critic.pth', map_location=DEVICE))
+        self.actor_target.load_state_dict(self.actor.state_dict())
+        self.critic_target.load_state_dict(self.critic.state_dict())
+        print(f'  [loaded] {path}')
+
+
+# ── Episode storage helpers ────────────────────────────────────────
+import re as _re
+import shutil as _shutil
+
+STATE_FILE = os.path.join(EPISODE_DIR, '_state.json')
+
+
+def _ep_name(ep_num, branch):
+    return f'ep_{ep_num:06d}' if branch == 0 else f'ep_{ep_num:06d}.{branch}'
+
+
+def _parse_ep_name(dirname):
+    m = _re.match(r'^ep_(\d{6})(?:\.(\d+))?$', dirname)
+    if not m:
+        return None
+    return int(m.group(1)), (int(m.group(2)) if m.group(2) else 0)
+
+
+def _read_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    return {'next_ep': 0, 'branch': 0, 'last_dir': None}
+
+
+def _write_state(s):
+    os.makedirs(EPISODE_DIR, exist_ok=True)
+    tmp = STATE_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(s, f, indent=2)
+    os.replace(tmp, STATE_FILE)
+
+
+def _save_episode(agent, st, reward, avg10, term_reason, total_steps):
+    ep_num = st['next_ep']
+    branch = st['branch']
+    if ep_num % SAVE_EVERY != 0:
+        st['next_ep'] += 1
+        return None
+    name = _ep_name(ep_num, branch)
+    path = os.path.join(EPISODE_DIR, name)
+    agent.save(path)
+    with open(f'{path}/info.json', 'w') as f:
+        json.dump({'ep_num': ep_num, 'branch': branch,
+                   'reward': round(reward, 2), 'avg10': round(avg10, 2),
+                   'term_reason': term_reason, 'total_steps': total_steps}, f)
+    st['next_ep'] += 1
+    st['last_dir'] = path
+    _write_state(st)
+    if KEEP_LAST_N > 0:
+        dirs = sorted(
+            (p for d in os.listdir(EPISODE_DIR)
+             if _parse_ep_name(d) and (p := os.path.join(EPISODE_DIR, d))),
+            key=os.path.getmtime
+        )
+        for old in dirs[:-KEEP_LAST_N]:
+            _shutil.rmtree(old, ignore_errors=True)
+    return path
+
+
+# ── Training Loop ──────────────────────────────────────────────────
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cuda',      action='store_true')
+    parser.add_argument('--load-from', type=str, default=None,
+                        help='Episode dir to load, e.g. models/episodes/ep_000350')
+    args, remaining = parser.parse_known_args()
+    sys.argv = [sys.argv[0]] + remaining
+
+    if args.cuda and torch.cuda.is_available():
+        DEVICE = torch.device('cuda')
+
+    print(f'  [device] {DEVICE}')
+    env    = TorcsEnv(throttle=True, gear_change=False)
+    agent  = TD3(STATE_DIM, ACTION_DIM)
+    buffer = PrioritizedReplayBuffer(BUFFER_SIZE)
+
+    st          = _read_state()
+    loaded_from = None
+
+    if args.load_from:
+        lp = args.load_from
+        if os.path.exists(f'{lp}/actor.pth'):
+            agent.load(lp)
+            loaded_from = lp
+            last = st.get('last_dir') or ''
+            if os.path.normpath(lp) != os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), last)):
+                st['branch'] += 1
+            parsed = _parse_ep_name(os.path.basename(lp))
+            if parsed:
+                st['next_ep'] = parsed[0] + 1
+            st['last_dir'] = lp
+        else:
+            print(f'  [warning] --load-from "{lp}" not found, falling through')
+
+    if loaded_from is None and st.get('last_dir'):
+        lp = st['last_dir']
+        full = lp if os.path.isabs(lp) else os.path.join(WORK_DIR, lp)
+        if os.path.exists(f'{full}/actor.pth'):
+            agent.load(full)
+            loaded_from = full
+
+    session_line = (f'=== Session {_time.strftime("%Y-%m-%d %H:%M:%S")} | '
+                    f'loaded: {loaded_from or "fresh"} | '
+                    f'next: {_ep_name(st["next_ep"], st["branch"])} ===')
+    print(session_line)
+    with open(LOG_FILE, 'a') as f:
+        f.write(session_line + '\n')
+
+    ou_steer = OUNoise(1, mu=0.0,  theta=0.15, sigma=0.10)
+    ou_accel = OUNoise(1, mu=0.4,  theta=0.5,  sigma=0.10)
+    ou_brake = OUNoise(1, mu=-0.9, theta=1.0,  sigma=0.02)
+
+    accel_floor_raw  = 2.0 * ACCEL_FLOOR - 1.0
+    total_steps      = 0
+    episode_rewards  = []
+    TRACK_LENGTH     = 3200.0
+    track_len_locked = False
+
+    for episode in range(MAX_EPISODES):
+
+        if os.path.exists(STOP_FLAG):
+            print('  [auto] stop.flag — saving and exiting')
+            break
+
+        if os.path.exists(LOAD_FLAG):
+            with open(LOAD_FLAG) as _f:
+                _swap_path = _f.read().strip()
+            os.remove(LOAD_FLAG)
+            if os.path.exists(f'{_swap_path}/actor.pth'):
+                agent.load(_swap_path)
+                buffer.clear()
+                st['branch'] += 1
+                parsed = _parse_ep_name(os.path.basename(_swap_path))
+                if parsed:
+                    st['next_ep'] = parsed[0] + 1
+                st['last_dir'] = _swap_path
+                episode_rewards = []
+                swap_line = (f'  [ai-swap] loaded {_swap_path} | '
+                             f'new branch={st["branch"]} | '
+                             f'next={_ep_name(st["next_ep"], st["branch"])}')
+                print(swap_line)
+                with open(LOG_FILE, 'a') as f:
+                    f.write(swap_line + '\n')
+            else:
+                print(f'  [ai-swap] path not found: {_swap_path}')
+
+        relaunch = (episode % RELAUNCH_EVERY == 0)
+        obs, _   = env.reset(relaunch=relaunch)
+        state    = obs_to_state(obs)
+        ou_steer.reset()
+        ou_accel.reset()
+        ou_brake.reset()
+
+        episode_reward = 0
+        step           = 0
+        term_reason    = 'max_steps'
+        ep_time        = 0.0
+        dist_start     = None
+        dist_covered   = 0.0
+
+        for step in range(MAX_STEPS):
+            if total_steps < WARMUP_STEPS:
+                action = np.array([ou_steer.sample()[0],
+                                   ou_accel.sample()[0],
+                                   ou_brake.sample()[0]])
+            else:
+                action = agent.select_action(state)
+                action[0] = np.clip(action[0] + ou_steer.sample()[0] * EXPL_NOISE, -1, 1)
+                action[1] = np.clip(action[1] + ou_accel.sample()[0] * EXPL_NOISE, -1, 1)
+                action[2] = np.clip(action[2] + ou_brake.sample()[0] * EXPL_NOISE, -1, 1)
+
+            action[1] = max(action[1], accel_floor_raw)
+            action    = np.clip(action, -1, 1)
+
+            obs, reward, done, _, info = env.step(action)
+            next_state = obs_to_state(obs)
+
+            step_dist = info.get('dist_from_start', 0.0)
+            if dist_start is None:
+                dist_start = step_dist
+            raw = step_dist - dist_start
+            if raw < -100:
+                raw += TRACK_LENGTH
+            dist_covered = max(dist_covered, raw)
+
+            buffer.add(state, action, reward, next_state, float(done))
+            if total_steps > SEED_STEPS and total_steps % TRAIN_FREQ == 0:
+                agent.train_step(buffer)
+
+            state          = next_state
+            episode_reward += reward
+            total_steps    += 1
+
+            if done:
+                term_reason = info.get('term_reason', 'unknown')
+                ep_time     = info.get('time', 0.0)
+                break
+
+        if term_reason == 'finished' and not track_len_locked:
+            TRACK_LENGTH     = dist_covered
+            track_len_locked = True
+            tl_line = f'  [track] length measured by TORCS sensor: {TRACK_LENGTH:.0f}m'
+            print(tl_line)
+            with open(LOG_FILE, 'a') as f:
+                f.write(tl_line + '\n')
+
+        pct = dist_covered / TRACK_LENGTH * 100
+
+        episode_rewards.append(episode_reward)
+        avg10      = float(np.mean(episode_rewards[-10:]))
+        mins, secs = divmod(ep_time, 60)
+        buf_pct    = 100.0 * len(buffer) / BUFFER_SIZE
+        ep_label   = _ep_name(st['next_ep'], st['branch'])
+
+        line = (f'Ep {ep_label} | '
+                f'Time {int(mins)}:{secs:05.2f} | '
+                f'Steps {step+1:5d} | '
+                f'Reward {episode_reward:9.1f} | '
+                f'Avg(10) {avg10:9.1f} | '
+                f'Dist {dist_covered:6.0f}m ({pct:5.1f}%) | '
+                f'Buf {buf_pct:5.1f}% | '
+                f'Total {total_steps:7d} | '
+                f'End: {term_reason}')
+        print(line)
+        with open(LOG_FILE, 'a') as f:
+            f.write(line + '\n')
+
+        _save_episode(agent, st, episode_reward, avg10, term_reason, total_steps)
+
+    env.end()
+    print('Training complete.')
+</train_py>
+<gym_torcs_py>import subprocess
+import pyautogui
+import gymnasium as gym
+from gymnasium import spaces
+import numpy as np
+import snakeoil3_gym as snakeoil3
+import copy
+import collections as col
+import os
+import time
+
+TORCS_EXE = r'C:\torcs\torcs\torcs\wtorcs.exe'
+TORCS_LOAD_WAIT = 10  # seconds to wait for main menu
+TORCS_RACE_WAIT = 8   # seconds to wait for track to load after menu
+
+
+def _launch_torcs():
+    subprocess.Popen(TORCS_EXE, cwd=os.path.dirname(TORCS_EXE))
+    time.sleep(TORCS_LOAD_WAIT)
+    pyautogui.press('enter')
+    time.sleep(0.3)
+    pyautogui.press('enter')
+    time.sleep(0.3)
+    pyautogui.press('enter')
+    time.sleep(TORCS_RACE_WAIT)
+
+
+def _kill_torcs():
+    os.system('taskkill /f /im wtorcs.exe >nul 2>&1')
+    time.sleep(1.0)
+
+
+class TorcsEnv:
+    terminal_judge_start = 150
+    termination_limit_progress = 2
+    default_speed = 50
+
+    initial_reset = True
+
+    def __init__(self, vision=False, throttle=False, gear_change=False):
+        self.vision = vision
+        self.throttle = throttle
+        self.gear_change = gear_change
+        self.initial_run = True
+
+        _kill_torcs()
+        _launch_torcs()
+
+        if throttle is False:
+            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+        else:
+            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
+
+        if vision is False:
+            high = np.array([1., np.inf, np.inf, np.inf, 1., np.inf, 1., np.inf], dtype=np.float32)
+            low = np.array([0., -np.inf, -np.inf, -np.inf, 0., -np.inf, 0., -np.inf], dtype=np.float32)
+            self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
+        else:
+            high = np.array([1., np.inf, np.inf, np.inf, 1., np.inf, 1., np.inf, 255], dtype=np.float32)
+            low = np.array([0., -np.inf, -np.inf, -np.inf, 0., -np.inf, 0., -np.inf, 0], dtype=np.float32)
+            self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
+
+    def step(self, u):
+        client = self.client
+
+        this_action = self.agent_to_torcs(u)
+        action_torcs = client.R.d
+
+        action_torcs['steer'] = this_action['steer']  # [-1, 1]
+
+        if self.throttle is False:
+            target_speed = self.default_speed
+            if client.S.d['speedX'] < target_speed - (client.R.d['steer'] * 50):
+                client.R.d['accel'] += .01
+            else:
+                client.R.d['accel'] -= .01
+
+            if client.R.d['accel'] > 0.2:
+                client.R.d['accel'] = 0.2
+
+            if client.S.d['speedX'] < 10:
+                client.R.d['accel'] += 1 / (client.S.d['speedX'] + .1)
+
+            if ((client.S.d['wheelSpinVel'][2] + client.S.d['wheelSpinVel'][3]) -
+                    (client.S.d['wheelSpinVel'][0] + client.S.d['wheelSpinVel'][1]) > 5):
+                action_torcs['accel'] -= .2
+        else:
+            action_torcs['accel'] = (this_action['accel'] + 1.0) / 2.0
+            action_torcs['brake'] = max(0.0, this_action['brake'])
+
+        if self.gear_change is True:
+            action_torcs['gear'] = this_action['gear']
+        else:
+            action_torcs['gear'] = 1
+            if client.S.d['speedX'] > 35:
+                action_torcs['gear'] = 2
+            if client.S.d['speedX'] > 60:
+                action_torcs['gear'] = 3
+            if client.S.d['speedX'] > 90:
+                action_torcs['gear'] = 4
+            if client.S.d['speedX'] > 120:
+                action_torcs['gear'] = 5
+            if client.S.d['speedX'] > 150:
+                action_torcs['gear'] = 6
+
+        prev_steer = float(self.last_u[0]) if self.last_u is not None else float(u[0])
+        self.last_u = u
+
+        obs_pre = copy.deepcopy(client.S.d)
+
+        client.respond_to_server()
+        client.get_servers_input()
+
+        if client.so is None:
+            self.observation = self.make_observaton(obs_pre)
+            finish_bonus = 5000.0 + (50000.0 / max(self.time_step, 1))
+            race_time = obs_pre.get('curLapTime', 0.0)
+            dist = float(obs_pre.get('distFromStart', 0.0))
+            return self.get_obs(), finish_bonus, True, False, {
+                'term_reason': 'finished', 'time': race_time, 'dist_from_start': dist}
+
+        obs = client.S.d
+        self.observation = self.make_observaton(obs)
+        dist = float(obs.get('distFromStart', 0.0))
+
+        if obs.get('lastLapTime', 0) > 0:
+            lap_time = obs['lastLapTime']
+            print(f"### LAP FINISHED in {lap_time:.1f}s ###")
+            # Strong time-based finish bonus: faster laps earn far more.
+            # Rewards optimizing lap TIME, not just completion.
+            finish_bonus = 5000.0 + (80000.0 / max(self.time_step, 1))
+            client.R.d['meta'] = True
+            client.respond_to_server()
+            return self.get_obs(), finish_bonus, True, False, {
+                'term_reason': 'finished', 'time': lap_time, 'dist_from_start': dist}
+
+        track    = np.array(obs['track'])
+        sp       = np.array(obs['speedX'])
+        progress = sp * np.cos(obs['angle'])
+
+        # ── Reward: go FAST, go forward, don't drift ─────────────────
+        # No trackPos penalty — the car should use the full track width.
+        # Good racing lines hug the edge; only punish leaving the track entirely.
+        # Speed term weighted up (1.5x) to push the car to maximize pace and
+        # break out of the "cozy slow lap" attractor. The drift penalty
+        # (lateral velocity) discourages sliding/scrubbing speed in corners.
+        reward = 1.5 * sp * np.cos(obs['angle']) - sp * abs(np.sin(obs['angle']))
+
+        # Removed the flat per-step survival bonus — it rewarded plodding
+        # slowly to rack up steps. Replaced with a speed-proportional on-track
+        # bonus so staying on track AND being fast is what pays.
+        if track.min() > 0:
+            reward += 0.5 + 0.04 * sp
+
+        # Edge-correction nudge: only when very close to leaving the track,
+        # gently reward steering/being back toward center. This targets the
+        # recurring off_track failure without penalizing racing-line use.
+        tp = abs(float(obs['trackPos']))
+        if tp > 0.85:
+            reward -= (tp - 0.85) * 20.0
+
+        # Steering-smoothness penalty: punish abrupt steering changes to
+        # reduce wobble/oscillation. Scaled by speed so it matters most at
+        # high speed where wobble causes off_track. Slightly reduced base
+        # coefficient so it does not suppress legitimate fast racing-line
+        # corrections needed for an aggressive line.
+        steer_delta = abs(float(u[0]) - prev_steer)
+        reward -= steer_delta * (2.0 + 0.05 * sp)
+
+        # Discourage near-zero speed (prevents stall attractor)
+        if sp < 0.3:
+            reward -= 4.0
+
+        # Clip to keep Q-values stable
+        reward = float(np.clip(reward, -50.0, 60.0))
+
+        term_reason = None
+
+        if obs['damage'] - obs_pre['damage'] > 0:
+            reward -= 40
+            client.R.d['meta'] = True
+            term_reason = 'damage'
+
+        episode_terminate = False
+        if track.min() < 0:
+            reward -= 60
+            episode_terminate = True
+            client.R.d['meta'] = True
+            term_reason = 'off_track'
+
+        if self.terminal_judge_start < self.time_step:
+            if progress < self.termination_limit_progress:
+                reward -= 40
+                episode_terminate = True
+                client.R.d['meta'] = True
+                term_reason = 'too_slow'
+
+        if np.cos(obs['angle']) < 0:
+            reward -= 60
+            episode_terminate = True
+            client.R.d['meta'] = True
+            term_reason = 'backwards'
+
+        if client.R.d['meta'] is True:
+            self.initial_run = False
+            client.respond_to_server()
+
+        self.time_step += 1
+
+        return self.get_obs(), reward, client.R.d['meta'], False, {
+            'term_reason': term_reason, 'time': obs.get('curLapTime', 0.0),
+            'dist_from_start': dist}
+
+    def reset(self, relaunch=False, seed=None, options=None):
+        self.time_step = 0
+
+        if self.initial_reset is not True:
+            self.client.R.d['meta'] = True
+            self.client.respond_to_server()
+
+            if relaunch is True:
+                self.reset_torcs()
+                print("### TORCS RELAUNCHED ###")
+
+        self.client = snakeoil3.Client(p=3001, vision=self.vision)
+        self.client.MAX_STEPS = np.inf
+
+        client = self.client
+        client.get_servers_input()
+
+        obs = client.S.d
+        self.observation = self.make_observaton(obs)
+        self.last_u = None
+        self.initial_reset = False
+
+        return self.get_obs(), {}
+
+    def end(self):
+        if hasattr(self, 'client') and self.client:
+            self.client.shutdown()
+        _kill_torcs()
+
+    def get_obs(self):
+        return self.observation
+
+    def reset_torcs(self):
+        _kill_torcs()
+        _launch_torcs()
+
+    def agent_to_torcs(self, u):
+        torcs_action = {'steer': u[0]}
+        if self.throttle is True:
+            torcs_action.update({'accel': u[1], 'brake': u[2]})
+        if self.gear_change is True:
+            torcs_action.update({'gear': u[3]})
+        return torcs_action
+
+    def obs_vision_to_image_rgb(self, obs_image_vec):
+        image_vec = obs_image_vec
+        rgb = []
+        temp = []
+        for i in range(0, 12286, 3):
+            temp.append(image_vec[i])
+            temp.append(image_vec[i + 1])
+            temp.append(image_vec[i + 2])
+            rgb.append(temp)
+            temp = []
+        return np.array(rgb, dtype=np.uint8)
+
+    def make_observaton(self, raw_obs):
+        if self.vision is False:
+            names = ['focus', 'speedX', 'speedY', 'speedZ', 'opponents', 'rpm', 'track', 'wheelSpinVel', 'angle', 'trackPos']
+            Observation = col.namedtuple('Observaion', names)
+            return Observation(
+                focus=np.array(raw_obs['focus'], dtype=np.float32) / 200.,
+                speedX=np.array(raw_obs['speedX'], dtype=np.float32) / self.default_speed,
+                speedY=np.array(raw_obs['speedY'], dtype=np.float32) / self.default_speed,
+                speedZ=np.array(raw_obs['speedZ'], dtype=np.float32) / self.default_speed,
+                opponents=np.array(raw_obs['opponents'], dtype=np.float32) / 200.,
+                rpm=np.array(raw_obs['rpm'], dtype=np.float32),
+                track=np.array(raw_obs['track'], dtype=np.float32) / 200.,
+                wheelSpinVel=np.array(raw_obs['wheelSpinVel'], dtype=np.float32),
+                angle=np.array(raw_obs['angle'], dtype=np.float32) / 3.14159,
+                trackPos=np.array(raw_obs['trackPos'], dtype=np.float32))
+        else:
+            names = ['focus', 'speedX', 'speedY', 'speedZ', 'opponents', 'rpm', 'track', 'wheelSpinVel', 'img']
+            Observation = col.namedtuple('Observaion', names)
+            image_rgb = self.obs_vision_to_image_rgb(raw_obs[names[8]])
+            return Observation(
+                focus=np.array(raw_obs['focus'], dtype=np.float32) / 200.,
+                speedX=np.array(raw_obs['speedX'], dtype=np.float32) / self.default_speed,
+                speedY=np.array(raw_obs['speedY'], dtype=np.float32) / self.default_speed,
+                speedZ=np.array(raw_obs['speedZ'], dtype=np.float32) / self.default_speed,
+                opponents=np.array(raw_obs['opponents'], dtype=np.float32) / 200.,
+                rpm=np.array(raw_obs['rpm'], dtype=np.float32),
+                track=np.array(raw_obs['track'], dtype=np.float32) / 200.,
+                wheelSpinVel=np.array(raw_obs['wheelSpinVel'], dtype=np.float32),
+                img=image_rgb)
+</gym_torcs_py>
