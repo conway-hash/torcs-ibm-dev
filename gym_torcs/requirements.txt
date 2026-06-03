@@ -1,0 +1,6 @@
+# ES trainer core needs only numpy.
+numpy>=1.24
+# torch is ONLY used by the optional MPC warm-start (mpc_bc.py).
+torch>=2.0
+# scipy is ONLY used by the MPC (../gym_torcs/torcs_mpc.py).
+scipy
