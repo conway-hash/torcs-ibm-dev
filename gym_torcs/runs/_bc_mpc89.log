@@ -1,0 +1,67 @@
+[mpc] ready (car_profile=True track_map=True dynamics=True)
+[mpc] attempt 1/45: LAP 87.1s (4355 steps) -> KEPT
+[mpc] attempt 2/45: dist 3372m (4220 steps) -> KEPT
+[mpc] attempt 3/45: dist 73m (285 steps) -> discarded (<1500m)
+[mpc] attempt 4/45: dist 69m (275 steps) -> discarded (<1500m)
+[mpc] attempt 5/45: dist 71m (279 steps) -> discarded (<1500m)
+[mpc] attempt 6/45: dist 3339m (4077 steps) -> KEPT
+[mpc] attempt 7/45: LAP 87.5s (4375 steps) -> KEPT
+[mpc] attempt 8/45: LAP 92.9s (4643 steps) -> KEPT
+[mpc] attempt 9/45: dist 880m (1252 steps) -> discarded (<1500m)
+[mpc] attempt 10/45: dist 186m (411 steps) -> discarded (<1500m)
+[mpc] attempt 11/45: dist 74m (286 steps) -> discarded (<1500m)
+[mpc] attempt 12/45: dist 74m (285 steps) -> discarded (<1500m)
+[mpc] attempt 13/45: dist 68m (271 steps) -> discarded (<1500m)
+[mpc] attempt 14/45: dist 312m (579 steps) -> discarded (<1500m)
+[mpc] attempt 15/45: dist 61m (261 steps) -> discarded (<1500m)
+[mpc] attempt 16/45: dist 257m (480 steps) -> discarded (<1500m)
+[mpc] attempt 17/45: LAP 86.7s (4333 steps) -> KEPT
+[mpc] attempt 18/45: dist 995m (1354 steps) -> discarded (<1500m)
+[mpc] attempt 19/45: dist 72m (280 steps) -> discarded (<1500m)
+[mpc] attempt 20/45: dist 74m (286 steps) -> discarded (<1500m)
+[mpc] attempt 21/45: dist 74m (283 steps) -> discarded (<1500m)
+[mpc] attempt 22/45: dist 73m (288 steps) -> discarded (<1500m)
+[mpc] attempt 23/45: dist 75m (290 steps) -> discarded (<1500m)
+[mpc] attempt 24/45: dist 77m (293 steps) -> discarded (<1500m)
+[mpc] attempt 25/45: dist 73m (285 steps) -> discarded (<1500m)
+[mpc] attempt 26/45: dist 76m (296 steps) -> discarded (<1500m)
+[mpc] attempt 27/45: dist 49m (235 steps) -> discarded (<1500m)
+[mpc] attempt 28/45: dist 75m (292 steps) -> discarded (<1500m)
+[mpc] attempt 29/45: dist 79m (292 steps) -> discarded (<1500m)
+[mpc] attempt 30/45: dist 79m (303 steps) -> discarded (<1500m)
+[mpc] attempt 31/45: dist 77m (294 steps) -> discarded (<1500m)
+[mpc] attempt 32/45: dist 72m (281 steps) -> discarded (<1500m)
+[mpc] attempt 33/45: dist 76m (291 steps) -> discarded (<1500m)
+[mpc] attempt 34/45: dist 52m (241 steps) -> discarded (<1500m)
+[mpc] attempt 35/45: dist 77m (296 steps) -> discarded (<1500m)
+[mpc] attempt 36/45: dist 75m (292 steps) -> discarded (<1500m)
+[mpc] attempt 37/45: dist 79m (295 steps) -> discarded (<1500m)
+[mpc] attempt 38/45: dist 75m (290 steps) -> discarded (<1500m)
+[mpc] attempt 39/45: dist 79m (302 steps) -> discarded (<1500m)
+[mpc] attempt 40/45: dist 77m (295 steps) -> discarded (<1500m)
+[mpc] attempt 41/45: dist 72m (284 steps) -> discarded (<1500m)
+[mpc] attempt 42/45: dist 81m (302 steps) -> discarded (<1500m)
+[mpc] attempt 43/45: dist 69m (274 steps) -> discarded (<1500m)
+[mpc] attempt 44/45: dist 121m (366 steps) -> discarded (<1500m)
+[mpc] attempt 45/45: dist 1852m (3164 steps) -> KEPT
+[mpc] kept 7/45 attempts (best 3610m) -> 29167 clean samples
+[bc] recorded 29167 state-action pairs
+
+[bc] training on 29167 samples (2916 val)  epochs=300  device=cuda
+[bc] epoch   1  train=0.39641  val=0.29095  best=0.29095
+[bc] epoch  25  train=0.16548  val=0.17156  best=0.17156
+[bc] epoch  50  train=0.14876  val=0.15506  best=0.15506
+[bc] epoch  75  train=0.14052  val=0.14745  best=0.14745
+[bc] epoch 100  train=0.13597  val=0.14352  best=0.14352
+[bc] epoch 125  train=0.13252  val=0.14057  best=0.14023
+[bc] epoch 150  train=0.12851  val=0.13629  best=0.13629
+[bc] epoch 175  train=0.12412  val=0.13158  best=0.13158
+[bc] epoch 200  train=0.11972  val=0.12703  best=0.12703
+[bc] epoch 225  train=0.11652  val=0.12406  best=0.12354
+[bc] epoch 250  train=0.11363  val=0.12049  best=0.12049
+[bc] epoch 275  train=0.11145  val=0.11791  best=0.11791
+[bc] epoch 300  train=0.10927  val=0.11588  best=0.11588
+
+[bc] saved warm-start -> C:\Users\honza\auticka\random_test\runs\corkscrew_es_mpc89\init_theta.npz  (val_loss=0.11588)
+
+Next: python train_es.py     (auto-loads init_theta.npz)
