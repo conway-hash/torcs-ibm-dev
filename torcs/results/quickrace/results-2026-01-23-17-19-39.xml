@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE params SYSTEM "C:/torcs/torcs/config/params.dtd">
+<?xml-stylesheet type="text/xsl" href="file:///C:/torcs/torcs/config/style.xsl"?>
+
+<params name="Results">
+  <section name="Header">
+    <attnum name="date" val="1.76919e+009"/>
+  </section>
+
+  <section name="Current">
+    <attnum name="current track" val="1"/>
+    <attnum name="current race" val="1"/>
+    <attnum name="current driver" val="1"/>
+  </section>
+
+  <section name="C-Speedway">
+    <section name="Drivers">
+      <section name="1">
+        <attstr name="dll name" val="scr_server"/>
+        <attnum name="index" val="0"/>
+      </section>
+
+      <section name="2">
+        <attstr name="dll name" val="inferno"/>
+        <attnum name="index" val="1"/>
+      </section>
+
+      <section name="3">
+        <attstr name="dll name" val="lliaw"/>
+        <attnum name="index" val="1"/>
+      </section>
+
+      <section name="4">
+        <attstr name="dll name" val="olethros"/>
+        <attnum name="index" val="1"/>
+      </section>
+
+      <section name="5">
+        <attstr name="dll name" val="tita"/>
+        <attnum name="index" val="1"/>
+      </section>
+
+    </section>
+
+    <section name="Results">
+      <section name="Quick Race">
+        <attnum name="laps" val="3"/>
+        <section name="Rank">
+          <section name="1">
+            <attstr name="name" val="inferno 1"/>
+            <attstr name="car" val="car1-ow1"/>
+            <attnum name="index" val="1"/>
+            <attnum name="laps" val="3"/>
+            <attnum name="time" val="111.334"/>
+            <attnum name="best lap time" val="35.398"/>
+            <attnum name="top speed" val="91.9755"/>
+            <attnum name="dammages" val="0"/>
+            <attnum name="pits stops" val="0"/>
+            <attstr name="module" val="inferno"/>
+            <attnum name="idx" val="1"/>
+            <attnum name="points" val="0"/>
+          </section>
+
+          <section name="2">
+            <attstr name="name" val="tita 1"/>
+            <attstr name="car" val="car1-ow1"/>
+            <attnum name="index" val="4"/>
+            <attnum name="laps" val="3"/>
+            <attnum name="time" val="112.896"/>
+            <attnum name="best lap time" val="35.772"/>
+            <attnum name="top speed" val="93.1963"/>
+            <attnum name="dammages" val="1280"/>
+            <attnum name="pits stops" val="0"/>
+            <attstr name="module" val="tita"/>
+            <attnum name="idx" val="1"/>
+            <attnum name="points" val="0"/>
+          </section>
+
+          <section name="3">
+            <attstr name="name" val="Olethros 2"/>
+            <attstr name="car" val="car1-ow1"/>
+            <attnum name="index" val="3"/>
+            <attnum name="laps" val="3"/>
+            <attnum name="time" val="116.326"/>
+            <attnum name="best lap time" val="37.238"/>
+            <attnum name="top speed" val="93.1865"/>
+            <attnum name="dammages" val="2023"/>
+            <attnum name="pits stops" val="0"/>
+            <attstr name="module" val="olethros"/>
+            <attnum name="idx" val="1"/>
+            <attnum name="points" val="0"/>
+          </section>
+
+          <section name="4">
+            <attstr name="name" val="lliaw 1"/>
+            <attstr name="car" val="car1-ow1"/>
+            <attnum name="index" val="2"/>
+            <attnum name="laps" val="3"/>
+            <attnum name="time" val="116.65"/>
+            <attnum name="best lap time" val="37.01"/>
+            <attnum name="top speed" val="93.1497"/>
+            <attnum name="dammages" val="3443"/>
+            <attnum name="pits stops" val="0"/>
+            <attstr name="module" val="lliaw"/>
+            <attnum name="idx" val="1"/>
+            <attnum name="points" val="0"/>
+          </section>
+
+          <section name="5">
+            <attstr name="name" val="scr_server 1"/>
+            <attstr name="car" val="car1-ow1"/>
+            <attnum name="index" val="0"/>
+            <attnum name="laps" val="2"/>
+            <attnum name="time" val="150.504"/>
+            <attnum name="best lap time" val="74.11"/>
+            <attnum name="top speed" val="44.8987"/>
+            <attnum name="dammages" val="0"/>
+            <attnum name="pits stops" val="0"/>
+            <attstr name="module" val="scr_server"/>
+            <attnum name="idx" val="0"/>
+            <attnum name="points" val="0"/>
+          </section>
+
+        </section>
+
+      </section>
+
+    </section>
+
+  </section>
+
+  <section name="Standings">
+    <section name="1">
+      <attstr name="name" val="inferno 1"/>
+      <attstr name="module" val="inferno"/>
+      <attnum name="idx" val="1"/>
+      <attnum name="points" val="0"/>
+    </section>
+
+    <section name="2">
+      <attstr name="name" val="tita 1"/>
+      <attstr name="module" val="tita"/>
+      <attnum name="idx" val="1"/>
+      <attnum name="points" val="0"/>
+    </section>
+
+    <section name="3">
+      <attstr name="name" val="Olethros 2"/>
+      <attstr name="module" val="olethros"/>
+      <attnum name="idx" val="1"/>
+      <attnum name="points" val="0"/>
+    </section>
+
+    <section name="4">
+      <attstr name="name" val="lliaw 1"/>
+      <attstr name="module" val="lliaw"/>
+      <attnum name="idx" val="1"/>
+      <attnum name="points" val="0"/>
+    </section>
+
+    <section name="5">
+      <attstr name="name" val="scr_server 1"/>
+      <attstr name="module" val="scr_server"/>
+      <attnum name="idx" val="0"/>
+      <attnum name="points" val="0"/>
+    </section>
+
+  </section>
+
+</params>

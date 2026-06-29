@@ -2,7 +2,7 @@
 # Replay the best ES policy and report its lap time. Safe to run while
 # train_es.py is going (uses a free scr_server slot above the workers).
 #
-#   python eval.py --gui                 # watch best.npz drive a lap
+#   python eval.py --gui                 # watch best.npz drive a lap (TORCS menu opens)
 #   python eval.py                       # headless, just report the time
 #   python eval.py --gui --episodes 5    # repeatability check
 #   python eval.py --theta runs/corkscrew_es/best.npz
@@ -14,7 +14,7 @@ import numpy as np
 from config import CFG
 from policy import Policy
 from torcs_env import TorcsEnv
-from launcher import ensure_car
+from launcher import ensure_car, kill_all_torcs, TorcsInstance
 
 
 def free_port_index():
@@ -28,13 +28,15 @@ def main():
     ap.add_argument('--port-index', type=int, default=None)
     ap.add_argument('--episodes', type=int, default=1)
     ap.add_argument('--gui', action='store_true',
-                    help='auto-launch a TORCS window (drops -T)')
+                    help='open the TORCS game window so you can watch the AI drive')
     ap.add_argument('--attach', action='store_true',
-                    help='connect to a TORCS race YOU launched (it is not '
-                         'launched/killed here). Use when --gui shows no window.')
+                    help='connect to a TORCS race YOU already launched manually')
     args = ap.parse_args()
 
-    ensure_car(CFG)   # guarantee we evaluate the SAME car training used
+    ensure_car(CFG)
+    if not args.attach:
+        kill_all_torcs()
+        time.sleep(1.5)
 
     if not os.path.exists(args.theta):
         raise SystemExit('not found: %s  (has training saved a best lap yet?)'
@@ -45,22 +47,41 @@ def main():
     print('loaded %s%s' % (args.theta,
           '  (recorded lap %.3fs)' % rec_lap if rec_lap else ''))
 
-    # In attach mode default to slot 0 (the race you launched uses scr_server
-    # idx 0 -> port 3001); otherwise pick a free slot above the workers.
-    if args.port_index is not None:
-        port_index = args.port_index
-    elif args.attach:
-        port_index = 0
-    else:
-        port_index = free_port_index()
+    gui_proc = None
 
-    if args.attach:
-        print('[attach] will connect to a TORCS race on port %d that YOU '
-              'launched. If not running yet, launch it now '
-              '(python launcher.py --gui-race).' % CFG.port_for(port_index))
+    if args.gui and not args.attach:
+        # Launch TORCS in menu mode (no -r flag) so the graphics window appears.
+        # The user starts the race manually; the agent connects automatically.
+        inst = TorcsInstance(0, CFG, gui=True)
+        inst.spawn_menu()
+        gui_proc = inst.proc
+        port_index = 0   # scr_server 0 = port 3001
+        print()
+        print('=' * 60)
+        print('  TORCS window is opening (allow ~10 seconds).')
+        print()
+        print('  In TORCS:  Race  ->  Quick Race  ->  New Race')
+        print()
+        print('  The AI connects automatically once the race loads.')
+        print('=' * 60)
+        print()
+        # Use attach mode so TorcsEnv waits for the user-started race
+        attach = True
+    else:
+        attach = args.attach
+        if args.port_index is not None:
+            port_index = args.port_index
+        elif attach:
+            port_index = 0
+        else:
+            port_index = free_port_index()
+
+        if attach:
+            print('[attach] waiting for TORCS on port %d...'
+                  % CFG.port_for(port_index))
 
     pol = Policy(CFG).set_flat(theta)
-    env = TorcsEnv(port_index, CFG, gui=args.gui, attach=args.attach)
+    env = TorcsEnv(port_index, CFG, gui=False, attach=attach)
 
     laps = []
     try:
@@ -82,8 +103,17 @@ def main():
                        'timeout' if info.get('timeout') else 'ended')
                 print('ep %d: NO LAP (%s)  dist=%.0fm' % (ep, why, dist))
     finally:
-        time.sleep(20)
+        try:
+            env.client.send_restart()
+        except Exception:
+            pass
+        time.sleep(5)
         env.close()
+        if gui_proc is not None:
+            try:
+                gui_proc.kill()
+            except Exception:
+                pass
 
     if laps:
         print('\nbest=%.3fs  mean=%.3fs  (%d/%d clean)'

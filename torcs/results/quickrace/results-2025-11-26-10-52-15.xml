@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE params SYSTEM "C:/torcs/torcs/config/params.dtd">
+<?xml-stylesheet type="text/xsl" href="file:///C:/torcs/torcs/config/style.xsl"?>
+
+<params name="Results">
+  <section name="Header">
+    <attnum name="date" val="1.76415e+009"/>
+  </section>
+
+  <section name="Current">
+    <attnum name="current track" val="1"/>
+    <attnum name="current race" val="1"/>
+    <attnum name="current driver" val="1"/>
+  </section>
+
+  <section name="Alpine 1">
+    <section name="Drivers">
+      <section name="1">
+        <attstr name="dll name" val="scr_server"/>
+        <attnum name="index" val="0"/>
+      </section>
+
+      <section name="2">
+        <attstr name="dll name" val="berniw3"/>
+        <attnum name="index" val="6"/>
+      </section>
+
+      <section name="3">
+        <attstr name="dll name" val="inferno2"/>
+        <attnum name="index" val="7"/>
+      </section>
+
+    </section>
+
+    <section name="Results">
+      <section name="Quick Race">
+        <attnum name="laps" val="3"/>
+        <section name="Rank">
+          <section name="1">
+            <attstr name="name" val="scr_server 1"/>
+            <attstr name="car" val="car1-trb1"/>
+            <attnum name="index" val="0"/>
+            <attnum name="laps" val="3"/>
+            <attnum name="time" val="474.148"/>
+            <attnum name="best lap time" val="155.622"/>
+            <attnum name="top speed" val="45.0448"/>
+            <attnum name="dammages" val="7459"/>
+            <attnum name="pits stops" val="0"/>
+            <attstr name="module" val="scr_server"/>
+            <attnum name="idx" val="0"/>
+            <attnum name="points" val="0"/>
+          </section>
+
+          <section name="2">
+            <attstr name="name" val="berniw hist 6"/>
+            <attstr name="car" val="Corvette T-Top"/>
+            <attnum name="index" val="1"/>
+            <attnum name="laps" val="3"/>
+            <attnum name="time" val="543.026"/>
+            <attnum name="best lap time" val="178.964"/>
+            <attnum name="top speed" val="54.8438"/>
+            <attnum name="dammages" val="25"/>
+            <attnum name="pits stops" val="0"/>
+            <attstr name="module" val="berniw3"/>
+            <attnum name="idx" val="6"/>
+            <attnum name="points" val="0"/>
+          </section>
+
+          <section name="3">
+            <attstr name="name" val="InfHist 7"/>
+            <attstr name="car" val="Ferrari 365 Gtb4 Daytona"/>
+            <attnum name="index" val="2"/>
+            <attnum name="laps" val="3"/>
+            <attnum name="time" val="590.974"/>
+            <attnum name="best lap time" val="195.848"/>
+            <attnum name="top speed" val="57.4986"/>
+            <attnum name="dammages" val="3011"/>
+            <attnum name="pits stops" val="0"/>
+            <attstr name="module" val="inferno2"/>
+            <attnum name="idx" val="7"/>
+            <attnum name="points" val="0"/>
+          </section>
+
+        </section>
+
+      </section>
+
+    </section>
+
+  </section>
+
+  <section name="Standings">
+    <section name="1">
+      <attstr name="name" val="scr_server 1"/>
+      <attstr name="module" val="scr_server"/>
+      <attnum name="idx" val="0"/>
+      <attnum name="points" val="0"/>
+    </section>
+
+    <section name="2">
+      <attstr name="name" val="berniw hist 6"/>
+      <attstr name="module" val="berniw3"/>
+      <attnum name="idx" val="6"/>
+      <attnum name="points" val="0"/>
+    </section>
+
+    <section name="3">
+      <attstr name="name" val="InfHist 7"/>
+      <attstr name="module" val="inferno2"/>
+      <attnum name="idx" val="7"/>
+      <attnum name="points" val="0"/>
+    </section>
+
+  </section>
+
+</params>

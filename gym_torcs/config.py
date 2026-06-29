@@ -7,8 +7,7 @@ from typing import List
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
 _TORCS_DIR = os.path.join(_ROOT, "torcs")
-_GYM_DIR   = os.path.join(_ROOT, "gym_torcs copy")  # the BETTER MPC (1:29 lap,
-                                                    # has a learned dynamics model)
+_GYM_DIR   = _HERE  # track_map.json lives alongside the Python files
 
 
 @dataclass
@@ -26,7 +25,7 @@ class Config:
     car_name:       str = "car1-ow1"
     car_setup_src:  str = os.path.join(_HERE, "car1-ow1_default.xml")
     laps_per_race:  int = 50
-    raceconfig_dir: str = os.path.join(_TORCS_DIR, "config", "raceman")
+    raceconfig_dir: str = os.path.join(_TORCS_DIR, "config", "raceman", "rt_es")
     raceconfig_prefix: str = "_rt_es_"
 
     # ---- Networking ----------------------------------------------------------

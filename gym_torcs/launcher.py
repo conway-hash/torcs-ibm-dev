@@ -1,6 +1,7 @@
 # launcher.py — hybrid_learning
 # Adapted from gym_torcs_learning/launcher.py; uses hybrid CFG.
 import os
+import shutil
 import socket
 import subprocess
 import time
@@ -8,7 +9,7 @@ import time
 from config import CFG
 
 _RACE_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE params SYSTEM "./params.dtd">
+<!DOCTYPE params SYSTEM "../params.dtd">
 <params name="Quick Race">
  <section name="Header">
   <attstr name="name" val="Quick Race"/>
@@ -146,6 +147,16 @@ class TorcsInstance:
             args, cwd=self.cfg.torcs_dir,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=cf)
+
+    def spawn_menu(self):
+        """Launch TORCS showing its GUI menu (no -r flag).
+        The graphics module loads from the menu, so the race window is visible.
+        Use with eval.py --gui: user starts the race manually, Python attaches."""
+        flags = [f for f in self.cfg.torcs_flags if f != "-T"]
+        args = [self.cfg.torcs_exe] + flags
+        cf = subprocess.CREATE_NEW_CONSOLE if os.name == "nt" else 0
+        self.proc = subprocess.Popen(args, cwd=self.cfg.torcs_dir,
+                                     creationflags=cf)
 
     def kill(self):
         if self.proc is not None:
